@@ -1,12 +1,36 @@
-# ✨ VibeSearch
+# 🧠 VibeSearch
 
-**Search & Recommend Based on Aesthetic / Intent**
+A full-stack AI-powered search app built with **Next.js**, supporting both:
 
-VibeSearch helps you discover places and content that match a **vibe**, not just keywords.
-
-Describe your mood → get **ranked recommendations** like coffee shops, workspaces, or content that fit your aesthetic.
+- 🌐 Cloud LLM (Google Gemini)
+- 💻 Local LLM (offline / no API key)
 
 ---
+
+## ✨ Features
+
+- AI-generated responses to user queries
+- Switch between:
+  - Google Gemini (cloud)
+  - Local LLM (offline)
+- Simple API route for LLM calls
+- Built with modern Next.js (App Router)
+- Easily extendable for embeddings, RAG, etc.
+
+---
+
+## 🏗️ Tech Stack
+
+- Next.js (App Router)
+- TypeScript
+- Google Gemini API
+- @xenova/transformers (local AI, no API keys)
+
+---
+
+## 🚀 Getting Started
+
+### 1. Install dependencies
 
 ## 🚀 Demo
 
@@ -25,22 +49,5 @@ Describe your mood → get **ranked recommendations** like coffee shops, workspa
 
 ---
 
-### Tech Stack
-
-- Next.js (App Router)
-- React
-- Tailwind CSS
-- TypeScript
-- @xenova/transformers (local AI, no API keys)
-
----
-
-## 🧪 Running Locally
-
-### 1. Clone the repo
-
-```bash
-git clone https://github.com/your-username/vibesearch.git
-cd vibesearch
 npm install
 http://localhost:3000
