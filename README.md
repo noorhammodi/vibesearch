@@ -1,4 +1,4 @@
-# 🧠 VibeSearch
+# VibeSearch
 
 A full-stack AI-powered search app built with **Next.js**, supporting both:
 
@@ -28,9 +28,6 @@ A full-stack AI-powered search app built with **Next.js**, supporting both:
 
 ---
 
-## 🚀 Getting Started
-
-### 1. Install dependencies
 
 ## 🚀 Demo
 
@@ -47,7 +44,4 @@ A full-stack AI-powered search app built with **Next.js**, supporting both:
    - **#1 Top Recommendation**
    - Ranked alternatives
 
----
 
-npm install
-http://localhost:3000
