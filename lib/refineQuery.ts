@@ -2,11 +2,15 @@ import { callLLM } from "./llm";
 
 export async function refineQuery(input: string) {
   const prompt = `
-Rewrite this search query to better capture the vibe, mood, and intent:
+You are a system that rewrites user input into ONE short aesthetic search query.
 
-"${input}"
+Rules:
+- Output ONLY one phrase
+- No explanation
+- No list
 
-Make it more descriptive but still concise.
+Input: "${input}"
+Output:
 `;
 
   return await callLLM(prompt);
