@@ -1,10 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { refineQuery } from "@/lib/refineQuery";
 import { fetchPlaces } from "@/lib/fetchPlaces";
-import { enrichPlace } from "@/lib/enrichVibe";
-import { rankPlaces } from "@/lib/ranking";
+import { combinedVibeSearch } from "@/lib/combinedVibeSearch";
+
 
 export default function Home() {
   const [input, setInput] = useState("");
@@ -15,26 +14,13 @@ export default function Home() {
     try {
       setLoading(true);
 
-      // 1. Refine vibe using LLM
-      const refined = await refineQuery(input);
-
-      // 2. Fetch real places (ARRAY)
       const places = await fetchPlaces();
-
-      // 3. Limit results
       const subset = places.slice(0, 8);
 
-      // 4. Enrich each place with vibe
-      const enriched = await Promise.all(
-        subset.map(enrichPlace)
-      );
 
-      // 5. Rank places based on vibe
-      const ranked = rankPlaces(refined, enriched);
-
-      const top = ranked[0];
-
-      setResult(top);
+    const { refinedQuery, enriched } = await combinedVibeSearch(input, subset);
+    const ranked = [...enriched].sort((a, b) => b.score - a.score);
+    setResult(ranked[0]);      setResult(ranked[0]);
     } catch (err) {
       console.error(err);
     } finally {
@@ -44,13 +30,8 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#1a0f14] text-white flex flex-col items-center justify-center p-8">
-      
-      {/* Title */}
-      <h1 className="text-4xl font-serif mb-6 text-[#f5e6ea]">
-        VibeSearch
-      </h1>
+      <h1 className="text-4xl font-serif mb-6 text-[#f5e6ea]">VibeSearch</h1>
 
-      {/* Input */}
       <input
         className="w-full max-w-xl p-4 rounded-xl bg-[#2a151d] border border-[#3a1f28] text-white outline-none focus:border-[#b76e79]"
         placeholder="Describe your vibe..."
@@ -58,7 +39,6 @@ export default function Home() {
         onChange={(e) => setInput(e.target.value)}
       />
 
-      {/* Button */}
       <button
         onClick={handleSearch}
         className="mt-4 px-6 py-3 rounded-xl bg-[#b76e79] hover:bg-[#a35c66] transition"
@@ -66,19 +46,12 @@ export default function Home() {
         {loading ? "Searching..." : "Search"}
       </button>
 
-      {/* Result */}
       {result && (
         <div className="mt-10 w-full max-w-xl">
-          <h2 className="text-xl font-semibold text-green-400">
-            🥇 Your Top #1 Choice
-          </h2>
-
+          <h2 className="text-xl font-semibold text-green-400">🥇 Your Top #1 Choice</h2>
           <p className="mt-2 text-lg">{result.name}</p>
           <p className="text-gray-400">📍 Montreal</p>
-
-          <p className="mt-2 italic text-gray-400">
-            {result.vibe}
-          </p>
+          <p className="mt-2 italic text-gray-400">{result.vibe}</p>
         </div>
       )}
     </main>
