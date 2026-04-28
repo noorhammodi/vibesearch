@@ -9,7 +9,7 @@ const playfair = Playfair_Display({
 
 export const metadata = {
   title: "VibeSearch",
-  description: "Find your perfect vibe",
+  description: "Describe a vibe, get a Montréal café",
 };
 
 export default function RootLayout({
