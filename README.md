@@ -1,6 +1,6 @@
 # VibeSearch
 
-A Next.js app that recommends Montreal drink spots from vibe keywords.
+An app that recommends Montreal drink spots from vibe keywords.
 
 ## Features
 
