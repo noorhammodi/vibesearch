@@ -4,6 +4,8 @@ An app that recommends Montreal drink spots from vibe keywords.
 
 ## Features
 
+- **Text-based vibe search**: Describe your desired café vibe in keywords
+- **Image-based vibe search**: Upload a photo and let Gemini 2.0 Flash analyze the vibe
 - Google Places candidate retrieval (coffee, matcha, tea, juice, boba, drink spots)
 - Hybrid ranking:
   - deterministic keyword/synonym scoring
@@ -38,10 +40,15 @@ npm run dev
 
 ## Architecture
 
-- API: `app/api/search/route.ts`
+- API:
+  - `app/api/search/route.ts` – text-based vibe search
+  - `app/api/search/vibe-from-image/route.ts` – image analysis with Gemini vision
+- UI Components:
+  - `app/page.tsx` – main page with tab switcher
+  - `components/ImageUpload.tsx` – drag-and-drop image upload
+  - `components/MontrealMap.tsx` – map display
 - Ranking: `lib/vibePick.ts`
 - Places source: `lib/coffeeShops.ts`
-- Map component: `components/MontrealMap.tsx`
 - Zone source abstraction: `lib/map/zoneSource.ts`
 
 ## Zone Source Migration

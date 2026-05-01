@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import dynamic from "next/dynamic";
+import ImageUpload from "@/components/ImageUpload";
 
 const MontrealMap = dynamic(() => import("@/components/MontrealMap"), {
   ssr: false,
@@ -18,9 +19,11 @@ type ShopResult = {
 
 export default function Home() {
   const [vibes, setVibes] = useState("");
+  const [inputMode, setInputMode] = useState<"text" | "image">("text");
   const [results, setResults] = useState<
     Array<{ shop: ShopResult; score: number; reason: string; rank?: number }>
   >([]);
+  const [detectedVibes, setDetectedVibes] = useState<string | null>(null);
   const [selectedShopId, setSelectedShopId] = useState<string | null>(null);
   const [requestedTopN, setRequestedTopN] = useState(3);
   const [loading, setLoading] = useState(false);
@@ -77,10 +80,22 @@ export default function Home() {
     setError(null);
     setResults([]);
     setSelectedShopId(null);
+    setDetectedVibes(null);
 
     setRequestedTopN(3);
     await runSearch(3);
   }
+
+  const handleDetectedVibes = (vibes: string) => {
+    setDetectedVibes(vibes);
+    setVibes(vibes);
+    setError(null);
+    setResults([]);
+    setSelectedShopId(null);
+    setRequestedTopN(3);
+    // Trigger search after vibes are detected
+    setTimeout(() => runSearch(3), 0);
+  };
 
   function mapsUrl(shop: ShopResult) {
     return `https://www.google.com/maps/search/?api=1&query_place_id=${encodeURIComponent(
@@ -104,26 +119,74 @@ export default function Home() {
           A few vibe words {"->"} curated Montreal drink spots on a custom map.
         </p>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4 text-left">
-          <label htmlFor="vibes" className="sr-only">
-            Your vibes
-          </label>
-          <input
-            id="vibes"
-            className="w-full p-4 rounded-xl bg-[#2a151d] border border-[#3a1f28] text-white placeholder:text-[#7a5f68] outline-none focus:border-[#b76e79]"
-            placeholder="e.g. quiet · rainy · laptop-friendly"
-            value={vibes}
-            onChange={(e) => setVibes(e.target.value)}
-            autoComplete="off"
-          />
+        <div className="mb-8 flex gap-2 border-b border-[#3a1f28]">
           <button
-            type="submit"
-            disabled={loading}
-            className="w-full px-6 py-3 rounded-xl bg-[#b76e79] hover:bg-[#a35c66] transition disabled:opacity-50 font-medium"
+            onClick={() => {
+              setInputMode("text");
+              setDetectedVibes(null);
+              setResults([]);
+              setError(null);
+            }}
+            className={`px-4 py-3 font-medium transition ${
+              inputMode === "text"
+                ? "text-[#b76e79] border-b-2 border-[#b76e79]"
+                : "text-[#9a858c] hover:text-[#c4a8b0]"
+            }`}
           >
-            {loading ? "Finding cafés…" : "Find cafés"}
+            ✍️ Describe your vibe
           </button>
-        </form>
+          <button
+            onClick={() => {
+              setInputMode("image");
+              setDetectedVibes(null);
+              setResults([]);
+              setError(null);
+            }}
+            className={`px-4 py-3 font-medium transition ${
+              inputMode === "image"
+                ? "text-[#b76e79] border-b-2 border-[#b76e79]"
+                : "text-[#9a858c] hover:text-[#c4a8b0]"
+            }`}
+          >
+            📸 Show me the vibe
+          </button>
+        </div>
+
+        {inputMode === "text" ? (
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4 text-left">
+            <label htmlFor="vibes" className="sr-only">
+              Your vibes
+            </label>
+            <input
+              id="vibes"
+              className="w-full p-4 rounded-xl bg-[#2a151d] border border-[#3a1f28] text-white placeholder:text-[#7a5f68] outline-none focus:border-[#b76e79]"
+              placeholder="e.g. quiet · rainy · laptop-friendly"
+              value={vibes}
+              onChange={(e) => setVibes(e.target.value)}
+              autoComplete="off"
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full px-6 py-3 rounded-xl bg-[#b76e79] hover:bg-[#a35c66] transition disabled:opacity-50 font-medium"
+            >
+              {loading ? "Finding cafés…" : "Find cafés"}
+            </button>
+          </form>
+        ) : (
+          <ImageUpload
+            onDetectedVibes={handleDetectedVibes}
+            onLoading={setLoading}
+            onError={setError}
+            isLoading={loading}
+          />
+        )}
+
+        {detectedVibes && (
+          <p className="mt-4 text-[#d4a574] text-center text-sm">
+            Detected vibes: <span className="italic">{detectedVibes}</span>
+          </p>
+        )}
 
         {error && <p className="mt-6 text-red-400 text-center">{error}</p>}
 
