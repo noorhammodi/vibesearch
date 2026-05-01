@@ -19,7 +19,7 @@ type ShopResult = {
 
 export default function Home() {
   const [vibes, setVibes] = useState("");
-  const [inputMode, setInputMode] = useState<"text" | "image">("text");
+  const [inputMode, setInputMode] = useState<"text" | "image" | "suggest">("text");
   const [results, setResults] = useState<
     Array<{ shop: ShopResult; score: number; reason: string; rank?: number }>
   >([]);
@@ -28,6 +28,10 @@ export default function Home() {
   const [requestedTopN, setRequestedTopN] = useState(3);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [suggestName, setSuggestName] = useState("");
+  const [suggestAddress, setSuggestAddress] = useState("");
+  const [suggestVibe, setSuggestVibe] = useState("");
+  const [suggestSuccess, setSuggestSuccess] = useState(false);
 
   async function runSearch(nextTopN: number) {
     const trimmed = vibes.trim();
@@ -97,6 +101,50 @@ export default function Home() {
     setTimeout(() => runSearch(3), 0);
   };
 
+  async function handleSuggestSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    
+    if (!suggestName.trim() || !suggestAddress.trim() || !suggestVibe.trim()) {
+      setError("Please provide place name, address, and vibe description.");
+      return;
+    }
+
+    setLoading(true);
+    setSuggestSuccess(false);
+    
+    try {
+      const res = await fetch("/api/suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: suggestName.trim(),
+          address: suggestAddress.trim(),
+          vibe: suggestVibe.trim(),
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Failed to save suggestion"
+        );
+      }
+
+      setSuggestSuccess(true);
+      setSuggestName("");
+      setSuggestAddress("");
+      setSuggestVibe("");
+      setError(null);
+      
+      setTimeout(() => setSuggestSuccess(false), 3000);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to save suggestion");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function mapsUrl(shop: ShopResult) {
     return `https://www.google.com/maps/search/?api=1&query_place_id=${encodeURIComponent(
       shop.id
@@ -150,6 +198,22 @@ export default function Home() {
           >
             📸 Show me the vibe
           </button>
+          <button
+            onClick={() => {
+              setInputMode("suggest");
+              setDetectedVibes(null);
+              setResults([]);
+              setError(null);
+              setSuggestSuccess(false);
+            }}
+            className={`px-4 py-3 font-medium transition ${
+              inputMode === "suggest"
+                ? "text-[#b76e79] border-b-2 border-[#b76e79]"
+                : "text-[#9a858c] hover:text-[#c4a8b0]"
+            }`}
+          >
+            ⭐ Suggest a place
+          </button>
         </div>
 
         {inputMode === "text" ? (
@@ -180,6 +244,68 @@ export default function Home() {
             onError={setError}
             isLoading={loading}
           />
+        )}
+
+        {inputMode === "suggest" && (
+          <form onSubmit={handleSuggestSubmit} className="flex flex-col gap-4 text-left">
+            <div>
+              <label htmlFor="place-name" className="block text-sm font-medium text-[#c4a8b0] mb-2">
+                Place name *
+              </label>
+              <input
+                id="place-name"
+                type="text"
+                className="w-full p-4 rounded-xl bg-[#2a151d] border border-[#3a1f28] text-white placeholder:text-[#7a5f68] outline-none focus:border-[#b76e79]"
+                placeholder="e.g. Café du Coin, Local Coffee Roastery"
+                value={suggestName}
+                onChange={(e) => setSuggestName(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="place-address" className="block text-sm font-medium text-[#c4a8b0] mb-2">
+                Address *
+              </label>
+              <input
+                id="place-address"
+                type="text"
+                className="w-full p-4 rounded-xl bg-[#2a151d] border border-[#3a1f28] text-white placeholder:text-[#7a5f68] outline-none focus:border-[#b76e79]"
+                placeholder="e.g. 123 Rue Saint-Denis, Montréal"
+                value={suggestAddress}
+                onChange={(e) => setSuggestAddress(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="place-vibe" className="block text-sm font-medium text-[#c4a8b0] mb-2">
+                What's the vibe? *
+              </label>
+              <textarea
+                id="place-vibe"
+                className="w-full p-4 rounded-xl bg-[#2a151d] border border-[#3a1f28] text-white placeholder:text-[#7a5f68] outline-none focus:border-[#b76e79] resize-none"
+                placeholder="e.g. Cozy, vintage vibes, perfect for focused work, amazing croissants, great WiFi"
+                rows={4}
+                value={suggestVibe}
+                onChange={(e) => setSuggestVibe(e.target.value)}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full px-6 py-3 rounded-xl bg-[#b76e79] hover:bg-[#a35c66] transition disabled:opacity-50 font-medium"
+            >
+              {loading ? "Saving…" : "Share your find"}
+            </button>
+
+            {suggestSuccess && (
+              <p className="text-[#7cb342] text-center text-sm font-medium">
+                ✓ Thanks for the suggestion! Your place has been saved.
+              </p>
+            )}
+          </form>
         )}
 
         {detectedVibes && (
