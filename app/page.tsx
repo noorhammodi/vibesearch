@@ -17,9 +17,24 @@ type ShopResult = {
   summary: string;
 };
 
+const VIBE_TAGS = [
+  "Cozy & quiet",
+  "Study spot",
+  "Brunch vibes",
+  "Laptop-friendly",
+  "Date spot",
+  "Specialty coffee",
+  "Outdoor terasse",
+  "Natural light",
+];
+
+const NEIGHBORHOODS = [
+  "Le Plateau", "Mile End", "Old Montréal", "Rosemont",
+  "Villeray", "Westmount", "NDG", "Verdun",
+];
+
 export default function Home() {
   const [vibes, setVibes] = useState("");
-  const [inputMode, setInputMode] = useState<"text" | "image" | "suggest">("text");
   const [results, setResults] = useState<
     Array<{ shop: ShopResult; score: number; reason: string; rank?: number }>
   >([]);
@@ -28,19 +43,25 @@ export default function Home() {
   const [requestedTopN, setRequestedTopN] = useState(3);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [suggestName, setSuggestName] = useState("");
+
+  const [submitterName, setSubmitterName] = useState("");
+  const [shopName, setShopName] = useState("");
   const [suggestAddress, setSuggestAddress] = useState("");
   const [suggestVibe, setSuggestVibe] = useState("");
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
   const [suggestSuccess, setSuggestSuccess] = useState(false);
 
-  async function runSearch(nextTopN: number) {
-    const trimmed = vibes.trim();
+  async function runSearch(nextTopN: number, vibesOverride?: string) {
+    const trimmed = (vibesOverride ?? vibes).trim();
     if (!trimmed) {
       setError("Describe your vibe in a few words.");
       return;
     }
+    if (vibesOverride) setVibes(vibesOverride);
 
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch("/api/search", {
         method: "POST",
@@ -59,10 +80,9 @@ export default function Home() {
         ? (data.results as Array<{ shop: ShopResult; score: number; reason: string; rank?: number }>)
         : [];
 
-      // Dedup by placeId, keep the earliest (best-ranked) one.
       const seen = new Set<string>();
-      const merged: Array<{ shop: ShopResult; score: number; reason: string; rank?: number }> = [];
-      for (const r of [...incoming]) {
+      const merged: typeof incoming = [];
+      for (const r of incoming) {
         const id = r?.shop?.id;
         if (!id || seen.has(id)) continue;
         seen.add(id);
@@ -81,74 +101,62 @@ export default function Home() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
     setResults([]);
     setSelectedShopId(null);
     setDetectedVibes(null);
-
     setRequestedTopN(3);
     await runSearch(3);
   }
 
-  const handleDetectedVibes = (vibes: string) => {
-    setDetectedVibes(vibes);
-    setVibes(vibes);
+  const handleDetectedVibes = (detected: string) => {
+    setDetectedVibes(detected);
+    setVibes(detected);
     setError(null);
     setResults([]);
     setSelectedShopId(null);
     setRequestedTopN(3);
-    // Trigger search after vibes are detected
-    setTimeout(() => runSearch(3), 0);
+    setTimeout(() => runSearch(3, detected), 0);
   };
 
   async function handleSuggestSubmit(e: React.FormEvent) {
     e.preventDefault();
-    
-    if (!suggestName.trim() || !suggestAddress.trim() || !suggestVibe.trim()) {
-      setError("Please provide place name, address, and vibe description.");
+    if (!shopName.trim() || !suggestAddress.trim() || !suggestVibe.trim()) {
+      setSuggestError("Café name, address, and vibe are required.");
       return;
     }
-
-    setLoading(true);
+    setSuggestLoading(true);
+    setSuggestError(null);
     setSuggestSuccess(false);
-    
     try {
       const res = await fetch("/api/suggestions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: suggestName.trim(),
+          submitterName: submitterName.trim(),
+          shopName: shopName.trim(),
           address: suggestAddress.trim(),
           vibe: suggestVibe.trim(),
         }),
       });
-
       const data = await res.json();
-
       if (!res.ok || data.error) {
-        throw new Error(
-          typeof data.error === "string" ? data.error : "Failed to save suggestion"
-        );
+        throw new Error(typeof data.error === "string" ? data.error : "Failed to save suggestion");
       }
-
       setSuggestSuccess(true);
-      setSuggestName("");
+      setSubmitterName("");
+      setShopName("");
       setSuggestAddress("");
       setSuggestVibe("");
-      setError(null);
-      
-      setTimeout(() => setSuggestSuccess(false), 3000);
+      setTimeout(() => setSuggestSuccess(false), 4000);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to save suggestion");
+      setSuggestError(err instanceof Error ? err.message : "Failed to save suggestion");
     } finally {
-      setLoading(false);
+      setSuggestLoading(false);
     }
   }
 
   function mapsUrl(shop: ShopResult) {
-    return `https://www.google.com/maps/search/?api=1&query_place_id=${encodeURIComponent(
-      shop.id
-    )}`;
+    return `https://www.google.com/maps/search/?api=1&query_place_id=${encodeURIComponent(shop.id)}`;
   }
 
   const handleSelectShop = useCallback((shopId: string) => {
@@ -157,74 +165,129 @@ export default function Home() {
     card?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, []);
 
-  return (
-    <main className="min-h-screen bg-[#1a0f14] text-white p-6 md:p-8">
-      <div className="w-full max-w-7xl mx-auto">
-        <h1 className="font-[family-name:var(--font-playfair)] text-4xl md:text-5xl mb-2 text-[#f5e6ea] text-center">
-          VibeSearch
-        </h1>
-        <p className="text-[#c4a8b0] text-sm md:text-base mb-8 text-center">
-          A few vibe words {"->"} curated Montreal drink spots on a custom map.
-        </p>
+  function scrollTo(id: string) {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+  }
 
-        <div className="mb-8 flex gap-2 border-b border-[#3a1f28]">
-          <button
-            onClick={() => {
-              setInputMode("text");
-              setDetectedVibes(null);
-              setResults([]);
-              setError(null);
-            }}
-            className={`px-4 py-3 font-medium transition ${
-              inputMode === "text"
-                ? "text-[#b76e79] border-b-2 border-[#b76e79]"
-                : "text-[#9a858c] hover:text-[#c4a8b0]"
-            }`}
-          >
-            ✍️ Describe your vibe
-          </button>
-          <button
-            onClick={() => {
-              setInputMode("image");
-              setDetectedVibes(null);
-              setResults([]);
-              setError(null);
-            }}
-            className={`px-4 py-3 font-medium transition ${
-              inputMode === "image"
-                ? "text-[#b76e79] border-b-2 border-[#b76e79]"
-                : "text-[#9a858c] hover:text-[#c4a8b0]"
-            }`}
-          >
-            📸 Show me the vibe
-          </button>
-          <button
-            onClick={() => {
-              setInputMode("suggest");
-              setDetectedVibes(null);
-              setResults([]);
-              setError(null);
-              setSuggestSuccess(false);
-            }}
-            className={`px-4 py-3 font-medium transition ${
-              inputMode === "suggest"
-                ? "text-[#b76e79] border-b-2 border-[#b76e79]"
-                : "text-[#9a858c] hover:text-[#c4a8b0]"
-            }`}
-          >
-            ⭐ Suggest a place
-          </button>
+  return (
+    <div className="bg-[#3a1520] text-[#F4F2EF] min-h-screen">
+
+      {/* ── NAV ── */}
+      <nav className="sticky top-0 z-20 flex items-center justify-between px-10 h-[60px] bg-[#1c0c10] border-b border-white/5">
+        <div className="flex items-center gap-3">
+          <svg width="26" height="26" viewBox="0 0 28 28">
+            <circle cx="14" cy="14" r="13" fill="#60212E"/>
+            <path d="M8 12 Q14 9 20 12" stroke="#94B6EF" strokeWidth="1.2" fill="none" strokeLinecap="round"/>
+            <circle cx="10" cy="15" r="2" fill="#F4F2EF" opacity="0.6"/>
+            <circle cx="18" cy="15" r="2" fill="#F4F2EF" opacity="0.6"/>
+            <path d="M10 18.5 Q14 21 18 18.5" stroke="#F4F2EF" strokeWidth="1" fill="none" strokeLinecap="round" opacity="0.75"/>
+            <path d="M20 10.5 Q23.5 8.5 23.5 11.5 Q23.5 13.5 20 12.5" stroke="#94B6EF" strokeWidth="0.9" fill="none" strokeLinecap="round"/>
+          </svg>
+          <span className="font-[family-name:var(--font-playfair)] text-[15px] tracking-wide">VibeSearch</span>
+        </div>
+        <div className="flex items-center gap-8">
+          <button onClick={() => scrollTo("vibe-search")} className="text-[11px] tracking-[0.15em] uppercase text-white/50 hover:text-white/80 transition">Search</button>
+          <button onClick={() => scrollTo("suggest-section")} className="text-[11px] tracking-[0.15em] uppercase text-white/50 hover:text-white/80 transition">Suggest a café</button>
+          <button onClick={() => scrollTo("vibe-search")} className="text-[10px] tracking-[0.15em] uppercase bg-[#F4F2EF] text-[#1c0c10] px-[18px] py-[7px] font-medium">Explore cafés</button>
+        </div>
+      </nav>
+
+      {/* ── HERO ── */}
+      <section className="bg-[#60212E] grid grid-cols-2 min-h-screen border-b border-white/5">
+        <div className="px-10 py-16 flex flex-col justify-end border-r border-white/10">
+          <p className="text-[10px] tracking-[0.22em] uppercase text-white/40 mb-5">Montréal · Est. 2024</p>
+          <h1 className="font-[family-name:var(--font-playfair)] text-[64px] font-black leading-[0.95] text-[#F4F2EF]">
+            Vibe<br/>
+            <em className="text-white/25">Search</em><br/>
+            <span className="text-[#94B6EF] not-italic block">Mtl</span>
+          </h1>
+          <p className="mt-6 text-[12px] leading-[1.8] text-white/50 max-w-[280px] tracking-[0.03em]">
+            Discover Montréal one cup at a time. Every neighbourhood, every vibe, every hidden gem — mapped and curated for you.
+          </p>
+          <div className="mt-8 flex gap-3">
+            <button onClick={() => scrollTo("vibe-search")} className="bg-[#F4F2EF] text-[#1c0c10] px-7 py-3 text-[11px] tracking-[0.14em] uppercase font-medium">
+              Explore the map
+            </button>
+            <button onClick={() => scrollTo("suggest-section")} className="border border-white/30 text-[#F4F2EF] px-6 py-3 text-[11px] tracking-[0.14em] uppercase">
+              Submit a café
+            </button>
+          </div>
+        </div>
+        <div className="bg-[#4a1924] flex flex-col items-center justify-center py-10">
+          <svg width="140" height="140" viewBox="0 0 140 140">
+            <circle cx="70" cy="70" r="66" fill="none" stroke="rgba(244,242,239,0.05)" strokeWidth="1"/>
+            <circle cx="70" cy="70" r="44" fill="none" stroke="rgba(244,242,239,0.04)" strokeWidth="1"/>
+            <ellipse cx="70" cy="86" rx="38" ry="22" fill="rgba(28,12,16,0.7)"/>
+            <ellipse cx="70" cy="84" rx="34" ry="18" fill="rgba(148,182,239,0.08)"/>
+            <path d="M42 62 Q70 52 98 62" stroke="#94B6EF" strokeWidth="2" fill="none" strokeLinecap="round"/>
+            <circle cx="54" cy="72" r="5.5" fill="#F4F2EF" opacity="0.5"/>
+            <circle cx="86" cy="72" r="5.5" fill="#F4F2EF" opacity="0.5"/>
+            <path d="M54 86 Q70 94 86 86" stroke="#F4F2EF" strokeWidth="2.2" fill="none" strokeLinecap="round" opacity="0.8"/>
+            <path d="M96 56 Q110 48 110 58 Q110 66 96 63" stroke="#94B6EF" strokeWidth="1.6" fill="none" strokeLinecap="round"/>
+            <path d="M62 36 Q70 26 78 36" stroke="rgba(148,182,239,0.3)" strokeWidth="1.2" fill="none" strokeLinecap="round"/>
+          </svg>
+          <p className="text-[10px] tracking-[0.2em] uppercase text-white/20 mt-5">Your guide to Montréal's café scene</p>
+        </div>
+      </section>
+
+      {/* ── TICKER ── */}
+      <div className="bg-[#94B6EF] h-9 flex items-center overflow-hidden">
+        <div className="flex whitespace-nowrap animate-ticker">
+          {[...NEIGHBORHOODS, ...NEIGHBORHOODS].map((n, i) => (
+            <span key={i} className={i % 2 === 1 ? "text-[#60212E] px-7 text-[10px] tracking-[0.2em] uppercase font-medium" : "text-[#1c0c10] px-7 text-[10px] tracking-[0.2em] uppercase font-medium"}>
+              {i % 2 === 1 ? "◆" : n}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* ── MAP SECTION ── */}
+      <section className="grid grid-cols-[1fr_1.4fr] border-b border-white/5">
+        <div className="px-10 py-16 bg-[#4a1924] flex flex-col justify-center border-r border-white/5">
+          <p className="text-[10px] tracking-[0.22em] uppercase text-[#94B6EF] mb-4">The map</p>
+          <h2 className="font-[family-name:var(--font-playfair)] text-[40px] font-bold leading-[1.05] text-[#F4F2EF] mb-4">
+            Every<br/>borough,<br/><em className="text-white/30">every cup</em>
+          </h2>
+          <p className="text-[12px] leading-[1.8] text-white/45 max-w-[260px] mb-6">
+            An interactive map of the island with neighbourhood zones. Search a vibe to see café pins appear.
+          </p>
+          {results.length > 0 ? (
+            <p className="text-[11px] text-[#94B6EF] tracking-wide">{results.length} spot{results.length !== 1 ? "s" : ""} found</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {[["#F4F2EF", "Café location"], ["#94B6EF", "Selected café"]].map(([color, label]) => (
+                <div key={label} className="flex items-center gap-3 text-[10px] tracking-[0.08em] text-white/40">
+                  <div className="w-3 h-3 rounded-full" style={{ background: color }} />
+                  {label}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="bg-[#1c0c10] min-h-[380px]">
+          <MontrealMap results={results} selectedShopId={selectedShopId} onSelectShop={handleSelectShop} />
+        </div>
+      </section>
+
+      {/* ── VIBE SEARCH ── */}
+      <section id="vibe-search" className="px-10 py-[72px] bg-[#60212E] border-b border-white/5">
+        <div className="flex justify-between items-end mb-10">
+          <div>
+            <p className="text-[10px] tracking-[0.22em] uppercase text-[#94B6EF] mb-4">Search by vibe</p>
+            <h2 className="font-[family-name:var(--font-playfair)] text-[36px] font-bold leading-tight text-[#F4F2EF]">
+              What's<br/>the <em className="text-white/30">mood?</em>
+            </h2>
+          </div>
+          <p className="text-[11px] text-white/30 max-w-[200px] leading-[1.7] text-right tracking-[0.04em]">
+            Describe your ideal café moment. We'll find your match.
+          </p>
         </div>
 
-        {inputMode === "text" ? (
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4 text-left">
-            <label htmlFor="vibes" className="sr-only">
-              Your vibes
-            </label>
+        <form onSubmit={handleSubmit}>
+          <div className="flex">
             <input
-              id="vibes"
-              className="w-full p-4 rounded-xl bg-[#2a151d] border border-[#3a1f28] text-white placeholder:text-[#7a5f68] outline-none focus:border-[#b76e79]"
-              placeholder="e.g. quiet · rainy · laptop-friendly"
+              className="flex-1 bg-[rgba(28,12,16,0.45)] border border-white/12 border-r-0 text-white px-5 py-4 text-[13px] placeholder:text-white/20 outline-none focus:border-[#94B6EF] transition"
+              placeholder="cozy, exposed brick, jazz, great oat latte..."
               value={vibes}
               onChange={(e) => setVibes(e.target.value)}
               autoComplete="off"
@@ -232,176 +295,231 @@ export default function Home() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full px-6 py-3 rounded-xl bg-[#b76e79] hover:bg-[#a35c66] transition disabled:opacity-50 font-medium"
+              className="bg-[#F4F2EF] text-[#1c0c10] px-7 py-4 text-[10px] tracking-[0.16em] uppercase font-medium disabled:opacity-50 whitespace-nowrap"
             >
-              {loading ? "Finding cafés…" : "Find cafés"}
+              {loading ? "Finding…" : "Find cafés →"}
             </button>
-          </form>
-        ) : (
+          </div>
+        </form>
+
+        <div className="flex gap-2 flex-wrap mt-4">
+          {VIBE_TAGS.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              onClick={() => {
+                const v = tag.toLowerCase();
+                setVibes(v);
+                setError(null);
+                setResults([]);
+                setSelectedShopId(null);
+                setDetectedVibes(null);
+                setRequestedTopN(3);
+                runSearch(3, v);
+              }}
+              className="px-4 py-[7px] border border-white/15 text-[10px] tracking-[0.1em] uppercase text-white/45 hover:border-[#94B6EF] hover:text-[#94B6EF] transition"
+            >
+              {tag}
+            </button>
+          ))}
+        </div>
+
+        {error && <p className="mt-6 text-red-400 text-[13px]">{error}</p>}
+
+        {detectedVibes && (
+          <p className="mt-4 text-[#94B6EF] text-[12px]">
+            Detected vibes: <span className="italic">{detectedVibes}</span>
+          </p>
+        )}
+
+        {/* Results */}
+        {results.length > 0 && (
+          <div className="mt-12">
+            <p className="text-[10px] tracking-[0.2em] uppercase text-[#94B6EF] mb-6">Suggestions</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-px bg-white/5">
+              {results.map((r, i) => (
+                <div
+                  key={`${r.shop.id}-${i}`}
+                  data-shop-id={r.shop.id}
+                  onClick={() => handleSelectShop(r.shop.id)}
+                  className={`bg-[#60212E] p-6 cursor-pointer transition hover:bg-[#4a1924] ${
+                    selectedShopId === r.shop.id ? "outline outline-1 outline-[#94B6EF] bg-[#4a1924]" : ""
+                  }`}
+                >
+                  <div className="flex justify-between items-start gap-4 mb-2">
+                    <h3 className="font-[family-name:var(--font-playfair)] text-[18px] text-[#F4F2EF] leading-tight">
+                      {i === 0 ? "🥇 " : ""}{r.shop.name}
+                    </h3>
+                    <span className="text-[11px] text-[#94B6EF] shrink-0 mt-1">{Math.round((r.score ?? 0) * 100)}%</span>
+                  </div>
+                  <p className="text-[11px] text-white/40 mb-3">{r.shop.address ?? "Montréal"}</p>
+                  {r.reason && (
+                    <p className="text-[12px] text-white/70 italic leading-relaxed mb-4">{r.reason}</p>
+                  )}
+                  <a
+                    href={mapsUrl(r.shop)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(ev) => ev.stopPropagation()}
+                    className="text-[10px] tracking-[0.1em] uppercase text-[#94B6EF] hover:text-[#F4F2EF] transition"
+                  >
+                    View on map →
+                  </a>
+                </div>
+              ))}
+            </div>
+            <div className="mt-6">
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => runSearch(Math.min(15, requestedTopN + 4))}
+                className="border border-white/15 px-6 py-2 text-[11px] tracking-[0.1em] uppercase text-white/50 hover:border-white/30 hover:text-white/70 transition disabled:opacity-50"
+              >
+                {loading ? "Loading…" : "Show more"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {results.length === 0 && !loading && (
+          <p className="mt-10 text-[12px] text-white/25 tracking-wide">
+            Search your vibe to see café suggestions and map pins.
+          </p>
+        )}
+      </section>
+
+      {/* ── IMAGE SECTION ── */}
+      <section id="image-section" className="grid grid-cols-[1.4fr_1fr] border-b border-white/5">
+        <div className="bg-[#1c0c10] flex flex-col items-center justify-center min-h-[280px] p-12 border-r border-white/5">
           <ImageUpload
             onDetectedVibes={handleDetectedVibes}
             onLoading={setLoading}
             onError={setError}
             isLoading={loading}
           />
-        )}
+        </div>
+        <div className="px-10 py-16 bg-[#4a1924] flex flex-col justify-center">
+          <p className="text-[10px] tracking-[0.22em] uppercase text-[#94B6EF] mb-4">Search by image</p>
+          <h2 className="font-[family-name:var(--font-playfair)] text-[32px] font-bold leading-tight text-[#F4F2EF] mb-4">
+            Show us<br/>the <em className="text-white/30">aesthetic</em>
+          </h2>
+          <p className="text-[12px] leading-[1.8] text-white/45 max-w-[260px]">
+            Upload a photo that captures the vibe you're after — a Pinterest save, a screenshot, a mood board. We'll find cafés that match.
+          </p>
+        </div>
+      </section>
 
-        {inputMode === "suggest" && (
-          <form onSubmit={handleSuggestSubmit} className="flex flex-col gap-4 text-left">
-            <div>
-              <label htmlFor="place-name" className="block text-sm font-medium text-[#c4a8b0] mb-2">
-                Place name *
-              </label>
+      {/* ── SUGGEST SECTION ── */}
+      <section id="suggest-section" className="px-10 py-[72px] pb-20 bg-[#3a1520] border-b border-white/5">
+        <div className="grid grid-cols-2 gap-10 mb-12 items-end">
+          <div>
+            <p className="text-[10px] tracking-[0.22em] uppercase text-[#94B6EF] mb-4">Community picks</p>
+            <h2 className="font-[family-name:var(--font-playfair)] text-[44px] font-bold leading-tight text-[#F4F2EF]">
+              Recommend<br/>a <em className="text-white/30">café</em>
+            </h2>
+          </div>
+          <p className="text-[11px] leading-[1.8] text-white/30 max-w-[280px]">
+            Know a hidden gem? Share it with the community. Verified Montréal suggestions influence future search results.
+          </p>
+        </div>
+
+        <form onSubmit={handleSuggestSubmit}>
+          <div className="grid grid-cols-2 gap-px bg-white/5">
+            <div className="bg-[#3a1520] p-5 flex flex-col gap-2">
+              <label className="text-[9px] tracking-[0.2em] uppercase text-white/28">Café name *</label>
               <input
-                id="place-name"
+                className="bg-transparent border-b border-white/10 text-[#F4F2EF] py-2 text-[13px] outline-none placeholder:text-white/18 focus:border-[#94B6EF] transition"
                 type="text"
-                className="w-full p-4 rounded-xl bg-[#2a151d] border border-[#3a1f28] text-white placeholder:text-[#7a5f68] outline-none focus:border-[#b76e79]"
-                placeholder="e.g. Café du Coin, Local Coffee Roastery"
-                value={suggestName}
-                onChange={(e) => setSuggestName(e.target.value)}
+                placeholder="Café Olimpico..."
+                value={shopName}
+                onChange={(e) => setShopName(e.target.value)}
                 autoComplete="off"
               />
             </div>
-
-            <div>
-              <label htmlFor="place-address" className="block text-sm font-medium text-[#c4a8b0] mb-2">
-                Address *
-              </label>
+            <div className="bg-[#3a1520] p-5 flex flex-col gap-2">
+              <label className="text-[9px] tracking-[0.2em] uppercase text-white/28">Address *</label>
               <input
-                id="place-address"
+                className="bg-transparent border-b border-white/10 text-[#F4F2EF] py-2 text-[13px] outline-none placeholder:text-white/18 focus:border-[#94B6EF] transition"
                 type="text"
-                className="w-full p-4 rounded-xl bg-[#2a151d] border border-[#3a1f28] text-white placeholder:text-[#7a5f68] outline-none focus:border-[#b76e79]"
-                placeholder="e.g. 123 Rue Saint-Denis, Montréal"
+                placeholder="124 Rue Mont-Royal O, Montréal..."
                 value={suggestAddress}
                 onChange={(e) => setSuggestAddress(e.target.value)}
                 autoComplete="off"
               />
             </div>
-
-            <div>
-              <label htmlFor="place-vibe" className="block text-sm font-medium text-[#c4a8b0] mb-2">
-                What's the vibe? *
-              </label>
-              <textarea
-                id="place-vibe"
-                className="w-full p-4 rounded-xl bg-[#2a151d] border border-[#3a1f28] text-white placeholder:text-[#7a5f68] outline-none focus:border-[#b76e79] resize-none"
-                placeholder="e.g. Cozy, vintage vibes, perfect for focused work, amazing croissants, great WiFi"
-                rows={4}
+            <div className="bg-[#3a1520] p-5 flex flex-col gap-2 col-span-2">
+              <label className="text-[9px] tracking-[0.2em] uppercase text-white/28">Vibe / atmosphere *</label>
+              <input
+                className="bg-transparent border-b border-white/10 text-[#F4F2EF] py-2 text-[13px] outline-none placeholder:text-white/18 focus:border-[#94B6EF] transition"
+                type="text"
+                placeholder="Indie, cozy, exposed brick, great pour-overs..."
                 value={suggestVibe}
                 onChange={(e) => setSuggestVibe(e.target.value)}
+                autoComplete="off"
               />
             </div>
+            <div className="bg-[#3a1520] p-5 flex flex-col gap-2">
+              <label className="text-[9px] tracking-[0.2em] uppercase text-white/28">Your name (optional)</label>
+              <input
+                className="bg-transparent border-b border-white/10 text-[#F4F2EF] py-2 text-[13px] outline-none placeholder:text-white/18 focus:border-[#94B6EF] transition"
+                type="text"
+                placeholder="Marie..."
+                value={submitterName}
+                onChange={(e) => setSubmitterName(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div className="bg-[#3a1520] p-5 flex items-end">
+              <p className="text-[10px] text-white/18 tracking-[0.06em] leading-relaxed">
+                All submissions are verified against Google Places before saving.
+              </p>
+            </div>
+          </div>
 
+          <div className="mt-8 flex items-center gap-5">
             <button
               type="submit"
-              disabled={loading}
-              className="w-full px-6 py-3 rounded-xl bg-[#b76e79] hover:bg-[#a35c66] transition disabled:opacity-50 font-medium"
+              disabled={suggestLoading}
+              className="bg-[#94B6EF] text-[#1c0c10] px-10 py-4 text-[11px] tracking-[0.14em] uppercase font-medium disabled:opacity-50"
             >
-              {loading ? "Saving…" : "Share your find"}
+              {suggestLoading ? "Checking & saving…" : "Submit recommendation"}
             </button>
-
             {suggestSuccess && (
-              <p className="text-[#7cb342] text-center text-sm font-medium">
-                ✓ Thanks for the suggestion! Your place has been saved.
-              </p>
+              <span className="text-[10px] text-[#94B6EF] tracking-wide">✓ Added! Thanks for the tip.</span>
             )}
-          </form>
-        )}
+          </div>
 
-        {detectedVibes && (
-          <p className="mt-4 text-[#d4a574] text-center text-sm">
-            Detected vibes: <span className="italic">{detectedVibes}</span>
-          </p>
-        )}
+          {suggestError && (
+            <p className="mt-4 text-red-400 text-[12px]">{suggestError}</p>
+          )}
+        </form>
+      </section>
 
-        {error && <p className="mt-6 text-red-400 text-center">{error}</p>}
-
-        <div className="mt-8 grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-6 items-start">
-          <section className="text-left">
-            {results.length > 0 && (
-              <>
-                <p className="text-xs uppercase tracking-wide text-[#b76e79] mb-3">
-                  Suggestions
-                </p>
-                <div className="flex flex-col gap-4 max-h-[520px] overflow-auto pr-1">
-                  {results.map((r, i) => (
-                    <div
-                      key={`${r.shop.id}-${i}`}
-                      data-shop-id={r.shop.id}
-                      onClick={() => handleSelectShop(r.shop.id)}
-                      className={`cursor-pointer rounded-2xl border p-6 shadow-lg transition ${
-                        selectedShopId === r.shop.id
-                          ? "border-[#ff5fb8] bg-[#2a1220]"
-                          : "border-[#3a1f28] bg-[#231018]"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <h2 className="font-[family-name:var(--font-playfair)] text-xl text-[#f5e6ea] mb-1">
-                            {i === 0 ? "🥇 " : ""}
-                            {r.shop.name}
-                          </h2>
-                          <p className="text-[#a8989e] text-sm">
-                            {r.shop.address ?? "Montréal"} · from Google Places
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xs text-[#9a858c]">match</p>
-                          <p className="text-sm text-[#e8d5da] font-medium">
-                            {Math.round((r.score ?? 0) * 100)}%
-                          </p>
-                        </div>
-                      </div>
-
-                      {r.reason && (
-                        <p className="mt-4 text-[#e8d5da] leading-relaxed italic">{r.reason}</p>
-                      )}
-                      <p className="mt-4 text-[#9a858c] text-sm">{r.shop.summary}</p>
-
-                      <div className="mt-5">
-                        <a
-                          href={mapsUrl(r.shop)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 text-[#b76e79] hover:text-[#d4919d] underline underline-offset-4 text-sm font-medium"
-                          onClick={(ev) => ev.stopPropagation()}
-                        >
-                          View on map
-                        </a>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-6 flex justify-center">
-                  <button
-                    type="button"
-                    disabled={loading}
-                    onClick={() => runSearch(Math.min(15, requestedTopN + 4))}
-                    className="px-5 py-2 rounded-xl border border-[#3a1f28] bg-[#2a151d] hover:bg-[#331a23] transition disabled:opacity-50 text-sm font-medium"
-                  >
-                    {loading ? "Generating more..." : "Show more"}
-                  </button>
-                </div>
-              </>
-            )}
-
-            {results.length === 0 && !loading && (
-              <p className="text-center text-[#9a858c] mt-8">
-                Search your vibe to see suggestions and map pins.
-              </p>
-            )}
-          </section>
-
-          <section>
-            <MontrealMap
-              results={results}
-              selectedShopId={selectedShopId}
-              onSelectShop={handleSelectShop}
-            />
-          </section>
+      {/* ── FOOTER ── */}
+      <footer className="grid grid-cols-3 bg-[#1c0c10] border-t border-white/5">
+        <div className="p-10 border-r border-white/5">
+          <p className="text-[9px] tracking-[0.2em] uppercase text-white/22 mb-4">Brand</p>
+          <p className="font-[family-name:var(--font-playfair)] text-[22px] font-bold text-[#F4F2EF]">VibeSearch</p>
+          <p className="text-[11px] text-white/22 tracking-[0.05em] mt-1">Montréal · Est. 2024</p>
         </div>
-      </div>
-    </main>
+        <div className="p-10 border-r border-white/5">
+          <p className="text-[9px] tracking-[0.2em] uppercase text-white/22 mb-4">Navigate</p>
+          <div className="flex flex-col gap-3">
+            {[["vibe-search", "Search by vibe"], ["image-section", "Search by image"], ["suggest-section", "Submit a café"]].map(([id, label]) => (
+              <button key={id} onClick={() => scrollTo(id)} className="text-[11px] tracking-[0.1em] uppercase text-white/35 hover:text-white/60 transition text-left">
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="p-10">
+          <p className="text-[9px] tracking-[0.2em] uppercase text-white/22 mb-4">About</p>
+          <p className="text-[10px] text-white/15 tracking-[0.06em] leading-[1.7]">
+            © 2024 VibeSearch.<br/>Curated Montréal café discovery<br/>powered by AI + community picks.
+          </p>
+        </div>
+      </footer>
+
+    </div>
   );
 }

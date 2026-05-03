@@ -7,6 +7,15 @@ export type RankedPick = {
   reason: string;
 };
 
+export type UserSuggestion = {
+  id: string;
+  shopName: string;
+  submitterName: string;
+  vibe: string;
+  timestamp: string;
+  placeId?: string;
+};
+
 const RERANK_SCHEMA = {
   type: "object",
   properties: {
@@ -85,7 +94,11 @@ function hasSynonymMatch(needle: string, haystack: Set<string>): boolean {
   return false;
 }
 
-function keywordScore(vibes: string, shop: MontrealCoffeeShop): number {
+function keywordScore(
+  vibes: string,
+  shop: MontrealCoffeeShop,
+  suggestions?: UserSuggestion[]
+): number {
   const titleTokens = new Set(tokenize(shop.name));
   const tokens = new Set(tokenize(`${shop.name} ${shop.summary}`));
   const vibeTokens = tokenize(vibes);
@@ -127,7 +140,15 @@ function keywordScore(vibes: string, shop: MontrealCoffeeShop): number {
   const normalized = score / Math.max(2.5, vibeTokens.length);
 
   // Blend "how many vibe terms were matched" with weighted score.
-  return Math.max(0, Math.min(1, normalized * 0.7 + coverage * 0.3));
+  let baseScore = Math.max(0, Math.min(1, normalized * 0.7 + coverage * 0.3));
+
+  // Apply user suggestion boost
+  if (suggestions && suggestions.length > 0) {
+    const boost = calculateSuggestionBoost(vibes, suggestions, shop);
+    baseScore = Math.min(1, baseScore + boost);
+  }
+
+  return baseScore;
 }
 
 function buildRerankPrompt(vibes: string, shops: MontrealCoffeeShop[]): string {
@@ -158,10 +179,72 @@ function clampAndDedupe(indices: number[], maxExclusive: number): number[] {
   return out;
 }
 
+function calculateSuggestionBoost(
+  searchVibes: string,
+  suggestions: UserSuggestion[],
+  shop: MontrealCoffeeShop
+): number {
+  if (suggestions.length === 0) return 0;
+
+  const searchTokens = new Set(tokenize(searchVibes));
+  const shopNameLower = shop.name.toLowerCase();
+  let boost = 0;
+
+  for (const suggestion of suggestions) {
+    // Check if suggestion name matches shop name (fuzzy match)
+    const suggestionNameLower = suggestion.shopName.toLowerCase();
+    if (
+      shopNameLower.includes(suggestionNameLower) ||
+      suggestionNameLower.includes(shopNameLower) ||
+      levenshteinDistance(shopNameLower, suggestionNameLower) <= 2
+    ) {
+      // This suggestion is for this shop, check vibe match
+      const suggestionVibeTokens = new Set(tokenize(suggestion.vibe));
+      let vibeMatches = 0;
+      for (const token of searchTokens) {
+        if (suggestionVibeTokens.has(token)) {
+          vibeMatches++;
+        } else if (hasSynonymMatch(token, suggestionVibeTokens)) {
+          vibeMatches += 0.75;
+        }
+      }
+      // Boost based on number of matching vibe terms
+      const vibeBoost = vibeMatches / Math.max(1, searchTokens.size);
+      boost = Math.max(boost, vibeBoost * 0.4); // Up to 40% boost from user suggestions
+    }
+  }
+
+  return boost;
+}
+
+function levenshteinDistance(s1: string, s2: string): number {
+  const len1 = s1.length;
+  const len2 = s2.length;
+  const d: number[][] = Array(len1 + 1)
+    .fill(null)
+    .map(() => Array(len2 + 1).fill(0));
+
+  for (let i = 0; i <= len1; i++) d[i][0] = i;
+  for (let j = 0; j <= len2; j++) d[0][j] = j;
+
+  for (let i = 1; i <= len1; i++) {
+    for (let j = 1; j <= len2; j++) {
+      const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(
+        d[i - 1][j] + 1,
+        d[i][j - 1] + 1,
+        d[i - 1][j - 1] + cost
+      );
+    }
+  }
+
+  return d[len1][len2];
+}
+
 export async function recommendShopsForVibes(
   vibes: string,
   shops: MontrealCoffeeShop[],
-  opts?: { topN?: number; shortlist?: number }
+  opts?: { topN?: number; shortlist?: number; suggestions?: UserSuggestion[] }
 ): Promise<{ results: RankedPick[] }> {
   const key = process.env.GOOGLE_API_KEY;
   if (!key?.trim()) {
@@ -175,9 +258,9 @@ export async function recommendShopsForVibes(
   const topN = Math.max(1, Math.min(opts?.topN ?? 7, 15));
   const shortlist = Math.max(topN, Math.min(opts?.shortlist ?? 25, shops.length));
 
-  // Stage 1: deterministic keyword ranking
+  // Stage 1: deterministic keyword ranking (with user suggestion boost)
   const scored = shops
-    .map((s, index) => ({ index, score: keywordScore(vibes, s) }))
+    .map((s, index) => ({ index, score: keywordScore(vibes, s, opts?.suggestions) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, shortlist);
 

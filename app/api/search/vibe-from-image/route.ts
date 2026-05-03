@@ -1,6 +1,21 @@
 import { NextResponse } from "next/server";
+import fs from "fs";
+import path from "path";
 import { fetchMontrealCoffeeShops } from "@/lib/coffeeShops";
-import { recommendShopsForVibes } from "@/lib/vibePick";
+import { recommendShopsForVibes, type UserSuggestion } from "@/lib/vibePick";
+
+function loadSuggestions(): UserSuggestion[] {
+  try {
+    const suggestionsFile = path.join(process.cwd(), "suggestions.json");
+    if (fs.existsSync(suggestionsFile)) {
+      const data = fs.readFileSync(suggestionsFile, "utf-8");
+      return JSON.parse(data);
+    }
+  } catch (error) {
+    console.error("Error loading suggestions:", error);
+  }
+  return [];
+}
 
 export async function POST(req: Request) {
   try {
@@ -83,9 +98,13 @@ Do not include explanations or extra text.`;
       );
     }
 
+    // Load user suggestions to boost scores
+    const suggestions = loadSuggestions();
+
     const { results } = await recommendShopsForVibes(vibesText, shops, {
       topN: Math.max(1, Math.min(topN, 15)),
       shortlist: 30,
+      suggestions,
     });
 
     const hydrated = results.map((r, rank) => ({
