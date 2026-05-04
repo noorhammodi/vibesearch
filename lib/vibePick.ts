@@ -14,6 +14,9 @@ export type UserSuggestion = {
   vibe: string;
   timestamp: string;
   placeId?: string;
+  formattedAddress?: string;
+  lat?: number;
+  lon?: number;
 };
 
 const RERANK_SCHEMA = {
@@ -151,14 +154,34 @@ function keywordScore(
   return baseScore;
 }
 
-function buildRerankPrompt(vibes: string, shops: MontrealCoffeeShop[]): string {
-  const lines = shops.map((s, i) => `${i}. ${s.name} — ${s.summary}`);
+function isSuggestedShop(shop: MontrealCoffeeShop, suggestions: UserSuggestion[]): boolean {
+  return suggestions.some(
+    (s) =>
+      (s.placeId && s.placeId === shop.id) ||
+      levenshteinDistance(s.shopName.toLowerCase(), shop.name.toLowerCase()) <= 2
+  );
+}
+
+function buildRerankPrompt(
+  vibes: string,
+  shops: MontrealCoffeeShop[],
+  suggestions?: UserSuggestion[]
+): string {
+  const lines = shops.map((s, i) => {
+    const tag = suggestions && isSuggestedShop(s, suggestions) ? " ⭐[community pick]" : "";
+    return `${i}. ${s.name}${tag} — ${s.summary}`;
+  });
+
+  const communityNote =
+    suggestions && suggestions.some((sg) => shops.some((s) => isSuggestedShop(s, [sg])))
+      ? "\nCafés marked ⭐[community pick] were personally recommended by Montréal locals — strongly favour them when they fit the vibe.\n"
+      : "";
 
   return `You match people to real Montreal cafés from a fixed list.
 
 User vibe keywords:
 ${JSON.stringify(vibes)}
-
+${communityNote}
 Cafés (choose ONLY by index 0–${shops.length - 1}; do not invent names or addresses):
 ${lines.join("\n")}
 
@@ -187,34 +210,38 @@ function calculateSuggestionBoost(
   if (suggestions.length === 0) return 0;
 
   const searchTokens = new Set(tokenize(searchVibes));
-  const shopNameLower = shop.name.toLowerCase();
   let boost = 0;
 
   for (const suggestion of suggestions) {
-    // Check if suggestion name matches shop name (fuzzy match)
-    const suggestionNameLower = suggestion.shopName.toLowerCase();
-    if (
-      shopNameLower.includes(suggestionNameLower) ||
-      suggestionNameLower.includes(shopNameLower) ||
-      levenshteinDistance(shopNameLower, suggestionNameLower) <= 2
-    ) {
-      // This suggestion is for this shop, check vibe match
+    // Prefer exact placeId match; fall back to fuzzy name match
+    const isMatch =
+      (suggestion.placeId && suggestion.placeId === shop.id) ||
+      levenshteinDistance(suggestion.shopName.toLowerCase(), shop.name.toLowerCase()) <= 2;
+
+    if (!isMatch) continue;
+
+    // Base boost just for being a community-suggested shop (vibe-independent)
+    let suggestionBoost = 0.18;
+
+    // Additional boost when the suggestion's vibe aligns with the search query
+    if (searchTokens.size > 0) {
       const suggestionVibeTokens = new Set(tokenize(suggestion.vibe));
       let vibeMatches = 0;
       for (const token of searchTokens) {
         if (suggestionVibeTokens.has(token)) {
-          vibeMatches++;
+          vibeMatches += 1;
         } else if (hasSynonymMatch(token, suggestionVibeTokens)) {
           vibeMatches += 0.75;
         }
       }
-      // Boost based on number of matching vibe terms
-      const vibeBoost = vibeMatches / Math.max(1, searchTokens.size);
-      boost = Math.max(boost, vibeBoost * 0.4); // Up to 40% boost from user suggestions
+      const vibeBoost = (vibeMatches / searchTokens.size) * 0.32;
+      suggestionBoost += vibeBoost;
     }
+
+    boost = Math.max(boost, suggestionBoost); // take the strongest match
   }
 
-  return boost;
+  return boost; // max ~0.50 when vibe matches perfectly
 }
 
 function levenshteinDistance(s1: string, s2: string): number {
@@ -270,7 +297,7 @@ export async function recommendShopsForVibes(
 
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
-    contents: buildRerankPrompt(vibes, shortlistShops),
+    contents: buildRerankPrompt(vibes, shortlistShops, opts?.suggestions),
     config: {
       responseMimeType: "application/json",
       responseJsonSchema: RERANK_SCHEMA as unknown as Record<string, unknown>,

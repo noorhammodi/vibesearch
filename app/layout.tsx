@@ -8,7 +8,7 @@ const playfair = Playfair_Display({
 });
 
 export const metadata = {
-  title: "VibeSearch",
+  title: "CafeCrawl Montreal",
   description: "Describe a vibe, get a Montréal café",
 };
 

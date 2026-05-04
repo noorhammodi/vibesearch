@@ -1,4 +1,7 @@
 /** Montreal drink spots from Google Places. Server-only. */
+import { supabase } from "./supabase";
+
+const SHOP_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 export type MontrealCoffeeShop = {
   /** Google Places placeId */
@@ -53,6 +56,17 @@ function buildSummary(p: {
 export async function fetchMontrealCoffeeShops(
   limit = 60
 ): Promise<MontrealCoffeeShop[]> {
+  // Check Supabase cache
+  const { data: cacheRow } = await supabase
+    .from("shop_cache")
+    .select("data, created_at")
+    .eq("cache_key", "shops")
+    .single();
+
+  if (cacheRow && Date.now() - new Date(cacheRow.created_at).getTime() < SHOP_TTL_MS) {
+    return cacheRow.data as MontrealCoffeeShop[];
+  }
+
   const key = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_API_KEY;
   if (!key?.trim()) {
     throw new Error("Missing GOOGLE_PLACES_API_KEY");
@@ -146,6 +160,13 @@ export async function fetchMontrealCoffeeShops(
     });
     if (shops.length >= limit) break;
   }
+
+  // Store in Supabase cache
+  await supabase.from("shop_cache").upsert({
+    cache_key: "shops",
+    data: shops,
+    created_at: new Date().toISOString(),
+  });
 
   return shops;
 }
