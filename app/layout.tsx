@@ -12,6 +12,13 @@ export const metadata = {
   description: "Describe a vibe, get a Montréal café",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#3d1822",
+};
+
 export default function RootLayout({
   children,
 }: {

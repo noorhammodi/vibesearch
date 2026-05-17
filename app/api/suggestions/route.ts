@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { invalidateSuggestionsCache, normalizePlaceId } from "@/lib/suggestions";
 
 type PlaceResult = {
   id: string;
@@ -84,7 +85,7 @@ async function validateMontrealShop(
   function extractResult(place: PlaceResult) {
     return {
       valid: true,
-      placeId: place.id,
+      placeId: normalizePlaceId(place.id) ?? place.id,
       formattedAddress: place.formattedAddress,
       lat: place.location?.latitude,
       lon: place.location?.longitude,
@@ -126,13 +127,15 @@ export async function POST(req: Request) {
       address: address.trim(),
       vibe: vibe.trim(),
       timestamp: new Date().toISOString(),
-      place_id: validation.placeId ?? null,
+      place_id: normalizePlaceId(validation.placeId) ?? validation.placeId ?? null,
       formatted_address: validation.formattedAddress ?? null,
       lat: validation.lat ?? null,
       lon: validation.lon ?? null,
     });
 
     if (error) throw new Error(error.message);
+
+    invalidateSuggestionsCache();
 
     return NextResponse.json({ success: true, message: "Suggestion saved successfully" }, { status: 201 });
   } catch (error: unknown) {

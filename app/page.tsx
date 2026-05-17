@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import dynamic from "next/dynamic";
-import ImageUpload from "@/components/ImageUpload";
+import CafeLogo from "@/components/CafeLogo";
 
 const MontrealMap = dynamic(() => import("@/components/MontrealMap"), {
   ssr: false,
@@ -38,7 +38,6 @@ export default function Home() {
   const [results, setResults] = useState<
     Array<{ shop: ShopResult; score: number; reason: string; rank?: number }>
   >([]);
-  const [detectedVibes, setDetectedVibes] = useState<string | null>(null);
   const [selectedShopId, setSelectedShopId] = useState<string | null>(null);
   const [requestedTopN, setRequestedTopN] = useState(3);
   const [loading, setLoading] = useState(false);
@@ -52,6 +51,10 @@ export default function Home() {
   const [suggestError, setSuggestError] = useState<string | null>(null);
   const [suggestSuccess, setSuggestSuccess] = useState(false);
 
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [quickNavOpen, setQuickNavOpen] = useState(false);
+  const [shopFeedback, setShopFeedback] = useState<Record<string, "up" | "down">>({});
+
   const [feedbackRating, setFeedbackRating] = useState(0);
   const [feedbackHover, setFeedbackHover] = useState(0);
   const [feedbackMessage, setFeedbackMessage] = useState("");
@@ -59,6 +62,25 @@ export default function Home() {
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [feedbackSuccess, setFeedbackSuccess] = useState(false);
+
+  function handleFeedback(shopId: string, shopName: string, vote: "up" | "down") {
+    setShopFeedback((prev) => {
+      // Toggle off if clicking the same vote again
+      if (prev[shopId] === vote) {
+        const next = { ...prev };
+        delete next[shopId];
+        return next;
+      }
+      return { ...prev, [shopId]: vote };
+    });
+
+    // Fire-and-forget — save to DB for persistent learning across sessions
+    fetch("/api/shop-vote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ shopId, shopName, vote, vibes }),
+    }).catch(() => {});
+  }
 
   async function runSearch(nextTopN: number, vibesOverride?: string) {
     const trimmed = (vibesOverride ?? vibes).trim();
@@ -71,10 +93,18 @@ export default function Home() {
     setLoading(true);
     setError(null);
     try {
+      const dislikedIds = Object.entries(shopFeedback)
+        .filter(([, v]) => v === "down")
+        .map(([id]) => id);
+
       const res = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vibes: trimmed, topN: nextTopN }),
+        body: JSON.stringify({
+          vibes: trimmed,
+          topN: nextTopN,
+          ...(dislikedIds.length > 0 && { dislikedIds }),
+        }),
       });
       const data = await res.json();
 
@@ -111,20 +141,9 @@ export default function Home() {
     e.preventDefault();
     setResults([]);
     setSelectedShopId(null);
-    setDetectedVibes(null);
     setRequestedTopN(3);
     await runSearch(3);
   }
-
-  const handleDetectedVibes = (detected: string) => {
-    setDetectedVibes(detected);
-    setVibes(detected);
-    setError(null);
-    setResults([]);
-    setSelectedShopId(null);
-    setRequestedTopN(3);
-    setTimeout(() => runSearch(3, detected), 0);
-  };
 
   async function handleSuggestSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -209,65 +228,124 @@ export default function Home() {
   }, []);
 
   function scrollTo(id: string) {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+    setMobileMenuOpen(false);
+    setQuickNavOpen(false);
+    const el = document.getElementById(id);
+    if (!el) return;
+    requestAnimationFrame(() => {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
+  function scrollToTop() {
+    setMobileMenuOpen(false);
+    setQuickNavOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  const quickNavLinks: [string, string][] = [
+    ["vibe-search", "Search cafés"],
+    ["suggest-section", "Suggest a café"],
+    ["feedback-section", "Feedback"],
+  ];
+
   return (
-    <div className="bg-[#3a1520] text-[#F4F2EF] min-h-screen">
+    <div className="bg-[var(--cc-bg)] text-[var(--cc-ink)] min-h-dvh overflow-x-hidden overflow-y-auto md:h-screen md:overflow-y-scroll md:snap-y md:snap-mandatory scroll-pt-nav">
+
+      <button type="button" onClick={() => setQuickNavOpen((o) => !o)} className="fixed left-0 top-1/2 z-40 -translate-y-1/2 flex flex-col items-center gap-1 py-3 pl-1.5 pr-2 bg-[var(--cc-surface-deep)]/95 border border-l-0 border-white/15 rounded-r-xl shadow-lg backdrop-blur-sm" aria-label={quickNavOpen ? "Close menu" : "Open quick navigation"} aria-expanded={quickNavOpen}>
+        <CafeLogo size={22} />
+        <span className="text-[8px] tracking-[0.1em] uppercase text-white/60">Menu</span>
+      </button>
+      {quickNavOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50" onClick={() => setQuickNavOpen(false)} role="presentation">
+          <aside className="absolute left-0 top-0 bottom-0 w-[min(280px,85vw)] bg-[var(--cc-surface-deep)] border-r border-white/10 flex flex-col safe-top safe-bottom shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <button type="button" onClick={scrollToTop} className="flex items-center gap-3 px-5 py-5 border-b border-white/10 text-left w-full hover:bg-white/5 transition">
+              <CafeLogo size={28} />
+              <span className="font-[family-name:var(--font-playfair)] text-[14px] tracking-wide">CafeCrawl Montreal</span>
+            </button>
+            <nav className="flex flex-col py-2">
+              {quickNavLinks.map(([id, label]) => (
+                <button key={id} type="button" onClick={() => scrollTo(id)} className="text-left px-5 py-4 min-h-[48px] text-[12px] tracking-[0.14em] uppercase text-white/80 hover:text-white hover:bg-white/8 transition">{label}</button>
+              ))}
+            </nav>
+          </aside>
+        </div>
+      )}
 
       {/* ── NAV ── */}
-      <nav className="sticky top-0 z-20 flex items-center justify-between px-4 md:px-10 h-[60px] bg-[#1c0c10] border-b border-white/5">
-        <div className="flex items-center gap-3">
-          <svg width="20" height="20" viewBox="0 0 28 28" className="md:w-[26px] md:h-[26px]">
-            {/* steam */}
-            <path d="M9 8.5 Q10.5 6 9 3.5" stroke="#94B6EF" strokeWidth="1.3" fill="none" strokeLinecap="round" opacity="0.75"/>
-            <path d="M15 8.5 Q16.5 6 15 3.5" stroke="#94B6EF" strokeWidth="1.3" fill="none" strokeLinecap="round" opacity="0.5"/>
-            {/* mug body */}
-            <rect x="3.5" y="9" width="16" height="12" rx="1.8" fill="#60212E" stroke="#F4F2EF" strokeWidth="1.4" opacity="0.9"/>
-            {/* handle */}
-            <path d="M19.5 11.5 Q25 11.5 25 15 Q25 19 19.5 19" stroke="#F4F2EF" strokeWidth="1.5" fill="none" strokeLinecap="round" opacity="0.8"/>
-            {/* coffee surface */}
-            <ellipse cx="11.5" cy="11" rx="5.5" ry="1.3" fill="#94B6EF" opacity="0.3"/>
-            {/* MTL city skyline */}
-            <rect x="3" y="24" width="2.5" height="3" rx="0.3" fill="rgba(148,182,239,0.35)"/>
-            <rect x="6.5" y="23" width="2" height="4" rx="0.3" fill="rgba(148,182,239,0.35)"/>
-            <rect x="9.5" y="24.5" width="1.8" height="2.5" rx="0.3" fill="rgba(148,182,239,0.25)"/>
-            <rect x="12" y="21.5" width="3" height="5.5" rx="0.3" fill="rgba(148,182,239,0.45)"/>
-            <rect x="16" y="23" width="2" height="4" rx="0.3" fill="rgba(148,182,239,0.35)"/>
-            <rect x="19" y="23.5" width="2.5" height="3.5" rx="0.3" fill="rgba(148,182,239,0.3)"/>
-            <line x1="3" y1="27" x2="22" y2="27" stroke="rgba(148,182,239,0.2)" strokeWidth="0.8"/>
-          </svg>
-          <span className="font-[family-name:var(--font-playfair)] text-[11px] md:text-[15px] tracking-wide">CafeCrawl Montreal</span>
+      <nav data-site-nav className="sticky top-0 z-30 bg-[var(--cc-surface-deep)]/95 border-b border-white/10 safe-top backdrop-blur-md">
+        <div className="flex items-center justify-between px-4 md:px-10 h-14 md:h-[60px]">
+          <button type="button" onClick={scrollToTop} className="touch-target flex items-center gap-2 md:gap-3 min-w-0 text-left -ml-2 pl-2" aria-label="Back to top">
+            <CafeLogo size={26} />
+            <span className="font-[family-name:var(--font-playfair)] text-[11px] md:text-[15px] tracking-wide">CafeCrawl Montreal</span>
+          </button>
+          <div className="hidden md:flex items-center gap-8">
+            <button onClick={() => scrollTo("vibe-search")} className="text-[10px] lg:text-[11px] tracking-[0.15em] uppercase text-white/50 hover:text-white/80 transition">Search</button>
+            <button onClick={() => scrollTo("suggest-section")} className="text-[10px] lg:text-[11px] tracking-[0.15em] uppercase text-white/50 hover:text-white/80 transition">Suggest a café</button>
+            <button onClick={() => scrollTo("feedback-section")} className="text-[10px] lg:text-[11px] tracking-[0.15em] uppercase text-white/50 hover:text-white/80 transition">Feedback</button>
+            <button onClick={() => scrollTo("vibe-search")} className="text-[9px] lg:text-[10px] tracking-[0.15em] uppercase bg-[#F4F2EF] text-[#1c0c10] px-[18px] py-[7px] font-medium">Explore cafés</button>
+          </div>
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="md:hidden touch-target flex flex-col items-center justify-center gap-[5px] -mr-1"
+            aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+            aria-expanded={mobileMenuOpen}
+          >
+            <span className={`block w-5 h-[1.5px] bg-white/70 transition-all duration-200 origin-center ${mobileMenuOpen ? "rotate-45 translate-y-[6.5px]" : ""}`} />
+            <span className={`block w-5 h-[1.5px] bg-white/70 transition-all duration-200 ${mobileMenuOpen ? "opacity-0" : ""}`} />
+            <span className={`block w-5 h-[1.5px] bg-white/70 transition-all duration-200 origin-center ${mobileMenuOpen ? "-rotate-45 -translate-y-[6.5px]" : ""}`} />
+          </button>
         </div>
-        <div className="hidden md:flex items-center gap-8">
-          <button onClick={() => scrollTo("vibe-search")} className="text-[10px] lg:text-[11px] tracking-[0.15em] uppercase text-white/50 hover:text-white/80 transition">Search</button>
-          <button onClick={() => scrollTo("suggest-section")} className="text-[10px] lg:text-[11px] tracking-[0.15em] uppercase text-white/50 hover:text-white/80 transition">Suggest a café</button>
-          <button onClick={() => scrollTo("feedback-section")} className="text-[10px] lg:text-[11px] tracking-[0.15em] uppercase text-white/50 hover:text-white/80 transition">Feedback</button>
-          <button onClick={() => scrollTo("vibe-search")} className="text-[9px] lg:text-[10px] tracking-[0.15em] uppercase bg-[#F4F2EF] text-[#1c0c10] px-[18px] py-[7px] font-medium">Explore cafés</button>
-        </div>
-        <button onClick={() => scrollTo("vibe-search")} className="md:hidden text-[10px] tracking-[0.15em] uppercase bg-[#F4F2EF] text-[#1c0c10] px-3 py-2 font-medium">Explore</button>
+        {mobileMenuOpen && (
+          <div className="md:hidden border-t border-white/10 flex flex-col bg-[var(--cc-surface-deep)]">
+            {quickNavLinks.map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => scrollTo(id)}
+                className="text-left px-6 py-4 min-h-[52px] text-[12px] tracking-[0.15em] uppercase text-white/75 hover:text-white active:bg-white/8 transition border-b border-white/10 last:border-0"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
       </nav>
 
+      <main className="flex flex-col">
+
+      {/* Landing: hero fills viewport, blue ticker pinned to bottom */}
+      <div className="flex flex-col min-h-dvh md:min-h-0">
       {/* ── HERO ── */}
-      <section className="bg-[#60212E] grid grid-cols-1 md:grid-cols-2 border-b border-white/5" style={{ minHeight: "calc(100vh - 60px - 44px)" }}>
-        <div className="px-4 md:px-10 py-8 md:py-16 flex flex-col justify-end md:border-r border-white/10">
-          <p className="text-[8px] md:text-[10px] tracking-[0.22em] uppercase text-white/40 mb-3 md:mb-5">Montréal · Est. 2026</p>
-          <h1 className="font-[family-name:var(--font-playfair)] text-[36px] md:text-[48px] lg:text-[64px] font-black leading-[0.95] text-[#F4F2EF]">
+      <section className="md:snap-start flex-1 grid grid-cols-1 bg-[var(--cc-hero)] md:grid-cols-2 max-md:border-b-0 md:border-b md:border-white/5 md:min-h-[calc(100dvh-60px-44px)]">
+        <div className="px-4 md:px-10 py-8 md:py-16 flex flex-col justify-center md:justify-end md:border-r border-white/10 order-2 md:order-1">
+          <p className="text-[10px] tracking-[0.22em] uppercase text-white/65 md:text-white/50 mb-3 md:mb-5">Montréal · Est. 2026</p>
+          <h1 className="font-[family-name:var(--font-playfair)] text-[40px] sm:text-[44px] md:text-[48px] lg:text-[64px] font-black leading-[0.95] text-[#F4F2EF]">
             Café<br/>
-            <em className="text-white/25">Crawl</em><br/>
-            <span className="text-[#94B6EF] not-italic block">Montréal</span>
+            <em className="text-white/40 md:text-white/25">Crawl</em><br/>
+            <span className="text-[#9ec0ff] md:text-[#94B6EF] not-italic block">Montréal</span>
           </h1>
-          <p className="mt-4 md:mt-6 text-[11px] md:text-[12px] leading-[1.8] text-white/50 max-w-[280px] tracking-[0.03em]">
+          <p className="mt-4 md:mt-6 text-[11px] md:text-[12px] leading-[1.8] text-white/70 md:text-white/50 max-w-[280px] tracking-[0.03em]">
             Discover Montréal one cup at a time. Every neighbourhood, every vibe, every hidden gem. Mapped and curated for you.
           </p>
           <div className="mt-6 md:mt-8 flex flex-col md:flex-row gap-3">
-            <button onClick={() => scrollTo("vibe-search")} className="bg-[#F4F2EF] text-[#1c0c10] px-5 md:px-7 py-3 text-[10px] md:text-[11px] tracking-[0.14em] uppercase font-medium">
-              Explore the map
+            <button onClick={() => scrollTo("vibe-search")} className="touch-target bg-[#F4F2EF] text-[#1c0c10] px-5 md:px-7 py-3.5 text-[11px] tracking-[0.14em] uppercase font-medium w-full md:w-auto text-center">
+              Find your vibe
             </button>
-            <button onClick={() => scrollTo("suggest-section")} className="border border-white/30 text-[#F4F2EF] px-5 md:px-6 py-3 text-[10px] md:text-[11px] tracking-[0.14em] uppercase">
+            <button onClick={() => scrollTo("suggest-section")} className="touch-target border border-white/30 text-[#F4F2EF] px-5 md:px-6 py-3.5 text-[11px] tracking-[0.14em] uppercase w-full md:w-auto text-center">
               Submit a café
             </button>
           </div>
+        </div>
+        <div className="flex md:hidden bg-[#4a1924] flex-col items-center justify-center py-8 order-1 border-b border-white/5">
+          <svg width="72" height="72" viewBox="0 0 140 140" aria-hidden>
+            <circle cx="70" cy="70" r="66" fill="none" stroke="rgba(244,242,239,0.05)" strokeWidth="1"/>
+            <path d="M50 32 Q53.5 24 50 16" stroke="#94B6EF" strokeWidth="2" fill="none" strokeLinecap="round" opacity="0.5"/>
+            <path d="M70 30 Q73.5 22 70 14" stroke="#94B6EF" strokeWidth="2.2" fill="none" strokeLinecap="round" opacity="0.7"/>
+            <path d="M90 32 Q93.5 24 90 16" stroke="#94B6EF" strokeWidth="2" fill="none" strokeLinecap="round" opacity="0.5"/>
+            <rect x="26" y="34" width="82" height="54" rx="7" fill="rgba(28,12,16,0.8)" stroke="rgba(244,242,239,0.6)" strokeWidth="2.2"/>
+            <path d="M108 48 Q126 48 126 61 Q126 74 108 74" stroke="rgba(244,242,239,0.65)" strokeWidth="3.5" fill="none" strokeLinecap="round"/>
+            <ellipse cx="67" cy="41" rx="35" ry="6.5" fill="rgba(148,182,239,0.1)" stroke="rgba(148,182,239,0.25)" strokeWidth="1.2"/>
+          </svg>
         </div>
         <div className="hidden md:flex bg-[#4a1924] flex-col items-center justify-center py-10">
           <svg width="100" height="100" viewBox="0 0 140 140" className="md:w-[140px] md:h-[140px]">
@@ -304,12 +382,12 @@ export default function Home() {
             {/* ground line */}
             <line x1="14" y1="128" x2="116" y2="128" stroke="rgba(148,182,239,0.18)" strokeWidth="1.2"/>
           </svg>
-          <p className="text-[8px] md:text-[10px] tracking-[0.2em] uppercase text-white/20 mt-3 md:mt-5">Your guide to Montréal's café scene</p>
+          <p className="text-[10px] tracking-[0.2em] uppercase text-white/35 mt-3 md:mt-5">Your guide to Montréal's café scene</p>
         </div>
       </section>
 
-      {/* ── TICKER ── */}
-      <div className="bg-[#94B6EF] h-[40px] md:h-[44px] flex items-center overflow-hidden">
+      {/* Blue neighbourhood ticker — pinned to bottom of first screen */}
+      <div className="shrink-0 bg-[#94B6EF] h-[40px] md:h-[44px] flex items-center overflow-hidden border-t border-[#1c0c10]/10">
         <div className="flex whitespace-nowrap animate-ticker">
           {[...NEIGHBORHOODS, ...NEIGHBORHOODS].map((n, i) => (
             <span key={i} className={i % 2 === 1 ? "text-[#60212E] px-4 md:px-8 text-[11px] md:text-[13px] tracking-[0.2em] uppercase font-medium" : "text-[#1c0c10] px-4 md:px-8 text-[11px] md:text-[13px] tracking-[0.2em] uppercase font-medium"}>
@@ -318,20 +396,179 @@ export default function Home() {
           ))}
         </div>
       </div>
+      </div>
+
+      {/* ── VIBE SEARCH + MAP (side by side) ── */}
+      <section id="vibe-search" className="scroll-section md:snap-start grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] border-b border-white/5 min-h-0 md:min-h-[calc(100dvh-60px)]">
+
+        {/* Left: search form + results */}
+        <div className="search-panel-mobile bg-[var(--cc-surface)] lg:bg-[var(--cc-hero)] border-b lg:border-b-0 lg:border-r border-white/10 lg:overflow-y-auto lg:max-h-[calc(100vh-60px)] lg:sticky lg:top-[60px]">
+          <div className="px-4 md:px-10 py-10 md:py-[72px]">
+            <div className="flex flex-col md:flex-row md:justify-between md:items-end mb-6 md:mb-10 gap-4 md:gap-0">
+              <div>
+                <p className="text-accent text-[10px] tracking-[0.22em] uppercase text-[#9ec0ff] lg:text-[#94B6EF] mb-2 md:mb-4 font-medium">Search by vibe</p>
+                <h2 className="text-heading font-[family-name:var(--font-playfair)] text-[28px] md:text-[36px] font-bold leading-tight lg:text-[#F4F2EF]">
+                  What&apos;s<br/>the <em className="text-white/40 lg:text-white/30">mood?</em>
+                </h2>
+              </div>
+              <p className="text-muted text-[11px] md:text-[11px] text-white/70 lg:text-white/50 max-w-[160px] leading-[1.7] md:text-right tracking-[0.04em]">
+                Describe your ideal café moment. We&apos;ll find your match.
+              </p>
+            </div>
+
+            <form onSubmit={handleSubmit}>
+              <div className="flex flex-col gap-2 md:gap-0 md:flex-row">
+                <input
+                  className="vibe-input flex-1 bg-[rgba(28,12,16,0.45)] border border-white/20 md:border-white/12 md:border-r-0 text-white px-4 md:px-5 py-3.5 md:py-4 text-base md:text-[13px] placeholder:text-white/40 lg:placeholder:text-white/30 outline-none focus:border-[#9ec0ff] lg:focus:border-[#94B6EF] transition rounded-lg lg:rounded-none"
+                  inputMode="search"
+                  enterKeyHint="search"
+                  placeholder="cozy, exposed brick, jazz, great oat latte..."
+                  value={vibes}
+                  onChange={(e) => setVibes(e.target.value)}
+                  autoComplete="off"
+                />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="touch-target bg-[#F4F2EF] text-[#1c0c10] px-5 md:px-7 py-3.5 md:py-4 text-[11px] md:text-[10px] tracking-[0.16em] uppercase font-medium disabled:opacity-50 whitespace-nowrap"
+                >
+                  {loading ? "Finding…" : "Find cafés →"}
+                </button>
+              </div>
+            </form>
+
+            <div className="flex gap-2 flex-wrap mt-3 md:mt-4">
+              {VIBE_TAGS.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  disabled={loading}
+                  onClick={() => {
+                    const v = tag.toLowerCase();
+                    setVibes(v);
+                    setError(null);
+                    setResults([]);
+                    setSelectedShopId(null);
+                    setRequestedTopN(3);
+                    runSearch(3, v);
+                  }}
+                  className="vibe-tag px-3.5 md:px-4 py-2.5 md:py-[7px] border border-white/20 lg:border-white/15 text-[10px] tracking-[0.1em] uppercase text-white/70 lg:text-white/45 hover:border-[#9ec0ff] hover:text-[#9ec0ff] lg:hover:border-[#94B6EF] lg:hover:text-[#94B6EF] active:bg-white/10 lg:active:bg-white/5 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+
+            {error && <p className="mt-4 md:mt-6 text-red-600 lg:text-red-400 text-[12px] md:text-[13px] font-medium">{error}</p>}
+
+            {/* Results */}
+            {results.length > 0 && (() => {
+              const displayed = results.filter((r) => shopFeedback[r.shop.id] !== "down");
+              return (
+                <div className="mt-8 md:mt-12">
+                  <p className="text-accent text-[10px] tracking-[0.2em] uppercase text-[#9ec0ff] lg:text-[#94B6EF] mb-4 md:mb-6 font-medium">
+                    {displayed.length} spot{displayed.length !== 1 ? "s" : ""} found
+                  </p>
+                  {displayed.length === 0 ? (
+                    <p className="text-muted text-[11px] md:text-[12px] text-white/70 lg:text-white/50 tracking-wide">
+                      All suggestions dismissed — try a different vibe.
+                    </p>
+                  ) : (
+                    <div className="flex flex-col gap-2 lg:gap-px lg:bg-white/5">
+                      {displayed.map((r, i) => (
+                        <div
+                          key={r.shop.id}
+                          data-shop-id={r.shop.id}
+                          onClick={() => handleSelectShop(r.shop.id)}
+                          className={`result-card p-4 md:p-6 cursor-pointer transition rounded-xl lg:rounded-none lg:bg-[var(--cc-surface)] hover:bg-[var(--cc-hero)] lg:hover:bg-[var(--cc-hero)] ${
+                            selectedShopId === r.shop.id ? "selected outline outline-2 outline-[#6fa3f5] lg:outline-1 lg:outline-[#94B6EF] bg-[#eef3fc] lg:bg-[var(--cc-hero)]" : ""
+                          }`}
+                        >
+                          <div className="flex justify-between items-start gap-3 mb-2">
+                            <h3 className="font-[family-name:var(--font-playfair)] text-[16px] md:text-[18px] lg:text-[#F4F2EF] leading-tight">
+                              {i === 0 ? "🥇 " : ""}{r.shop.name}
+                            </h3>
+                            <div className="flex items-center gap-0.5 shrink-0 mt-0.5">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleFeedback(r.shop.id, r.shop.name, "up"); }}
+                                className={`touch-target p-2 rounded transition-opacity ${shopFeedback[r.shop.id] === "up" ? "opacity-100" : "opacity-40 active:opacity-80 md:opacity-20 md:hover:opacity-60"}`}
+                                title="Good match"
+                              >
+                                👍
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleFeedback(r.shop.id, r.shop.name, "down"); }}
+                                className={`touch-target p-2 rounded transition-opacity ${shopFeedback[r.shop.id] === "down" ? "opacity-100" : "opacity-40 active:opacity-80 md:opacity-20 md:hover:opacity-60"}`}
+                                title="Not my vibe"
+                              >
+                                👎
+                              </button>
+                            </div>
+                          </div>
+                          <p className="result-address text-[11px] md:text-[11px] text-white/55 lg:text-white/40 mb-3">{r.shop.address ?? "Montréal"}</p>
+                          {r.reason && (
+                            <p className="result-reason text-[12px] md:text-[12px] text-white/80 lg:text-white/70 italic leading-relaxed mb-4">{r.reason}</p>
+                          )}
+                          <a
+                            href={mapsUrl(r.shop)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(ev) => ev.stopPropagation()}
+                            className="result-link text-[10px] md:text-[10px] tracking-[0.1em] uppercase text-[#6fa3f5] lg:text-[#94B6EF] hover:text-[#9ec0ff] lg:hover:text-[#F4F2EF] transition font-medium"
+                          >
+                            View on map →
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-5 md:mt-6 pb-10">
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => runSearch(Math.min(15, requestedTopN + 4))}
+                      className="show-more-btn border border-white/20 lg:border-white/15 px-4 md:px-6 py-2.5 text-[10px] md:text-[11px] tracking-[0.1em] uppercase text-white/70 lg:text-white/50 hover:border-white/30 hover:text-white/70 transition disabled:opacity-50"
+                    >
+                      {loading ? "Loading…" : "Show more"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {results.length === 0 && !loading && (
+              <p className="text-muted mt-8 md:mt-10 text-[12px] md:text-[12px] text-white/70 lg:text-white/45 tracking-wide">
+                Search your vibe to see café suggestions and map pins.
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Right: map — inset card on mobile, full panel on desktop */}
+        <div className="map-panel-mobile surface-dark px-5 py-6 lg:px-0 lg:py-0 flex flex-col items-center lg:block lg:h-[calc(100dvh-60px)] lg:sticky lg:top-[60px]">
+          <p className="lg:hidden w-full max-w-[300px] text-[10px] tracking-[0.2em] uppercase text-[#9ec0ff] font-medium mb-3 self-start">
+            Map preview
+          </p>
+          <div className="w-[min(300px,82vw)] aspect-square shrink-0 rounded-2xl overflow-hidden border-2 border-white/25 shadow-[0_12px_40px_rgba(0,0,0,0.35)] lg:w-full lg:max-w-none lg:aspect-auto lg:rounded-none lg:border-0 lg:shadow-none lg:h-full">
+            <MontrealMap results={results} selectedShopId={selectedShopId} onSelectShop={handleSelectShop} />
+          </div>
+        </div>
+
+      </section>
 
       {/* ── SUGGEST SECTION ── */}
-      <section id="suggest-section" className="border-b border-white/5 grid grid-cols-1 md:grid-cols-[1fr_1.6fr]">
+      <section id="suggest-section" className="scroll-section md:snap-start border-b border-white/5 grid grid-cols-1 md:grid-cols-[1fr_1.6fr] min-h-0 md:min-h-[calc(100dvh-60px)]">
 
         {/* Left panel — editorial copy */}
-        <div className="bg-[#F4F2EF] px-4 md:px-10 py-8 md:py-16 flex flex-col justify-between">
+        <div className="panel-light bg-[#F4F2EF] px-4 md:px-10 py-8 md:py-16 flex flex-col justify-between">
           <div>
-            <p className="text-[8px] md:text-[10px] tracking-[0.25em] uppercase text-[#1c0c10]/40 mb-4 md:mb-6">Community picks</p>
-            <h2 className="font-[family-name:var(--font-playfair)] text-[32px] md:text-[48px] lg:text-[52px] font-bold leading-[1] text-[#1c0c10]">
+            <p className="text-label text-[10px] tracking-[0.25em] uppercase mb-4 md:mb-6 font-medium">Community picks</p>
+            <h2 className="font-[family-name:var(--font-playfair)] text-[32px] md:text-[48px] lg:text-[52px] font-bold leading-[1]">
               Know a<br/>hidden<br/><em className="text-[#60212E]">gem?</em>
             </h2>
           </div>
           <div>
-            <p className="text-[11px] md:text-[12px] leading-[1.9] text-[#1c0c10]/55 max-w-[260px] mb-6 md:mb-8">
+            <p className="text-muted text-[12px] md:text-[12px] leading-[1.9] max-w-[260px] mb-6 md:mb-8">
               Share it with the community. Every verified submission directly influences future search results. Your pick could become someone's new favourite spot.
             </p>
             <p className="font-[family-name:var(--font-playfair)] text-[14px] md:text-[18px] italic leading-[1.6] text-[#60212E]">
@@ -341,15 +578,15 @@ export default function Home() {
         </div>
 
         {/* Right panel — form */}
-        <div className="bg-[#1c0c10] px-4 md:px-12 py-8 md:py-16 flex flex-col justify-center">
-          <p className="text-[8px] md:text-[10px] tracking-[0.22em] uppercase text-white/25 mb-6 md:mb-8">Suggest a café</p>
+        <div className="surface-dark px-4 md:px-12 py-8 md:py-16 flex flex-col justify-center">
+          <p className="text-[10px] tracking-[0.22em] uppercase text-white/50 mb-6 md:mb-8">Suggest a café</p>
           <form onSubmit={handleSuggestSubmit}>
             <div className="flex flex-col gap-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="flex flex-col gap-2">
-                  <label className="text-[8px] md:text-[9px] tracking-[0.2em] uppercase text-white/35">Café name *</label>
+                  <label className="text-[9px] tracking-[0.2em] uppercase text-white/55">Café name *</label>
                   <input
-                    className="bg-transparent border-b border-white/15 text-[#F4F2EF] py-3 text-[13px] md:text-[14px] outline-none placeholder:text-white/15 focus:border-[#94B6EF] transition"
+                    className="bg-transparent border-b border-white/15 text-[#F4F2EF] py-3 text-[13px] md:text-[14px] outline-none placeholder:text-white/30 focus:border-[#94B6EF] transition"
                     type="text"
                     placeholder="Café Olimpico"
                     value={shopName}
@@ -358,9 +595,9 @@ export default function Home() {
                   />
                 </div>
                 <div className="flex flex-col gap-2">
-                  <label className="text-[8px] md:text-[9px] tracking-[0.2em] uppercase text-white/35">Address *</label>
+                  <label className="text-[9px] tracking-[0.2em] uppercase text-white/55">Address *</label>
                   <input
-                    className="bg-transparent border-b border-white/15 text-[#F4F2EF] py-3 text-[13px] md:text-[14px] outline-none placeholder:text-white/15 focus:border-[#94B6EF] transition"
+                    className="bg-transparent border-b border-white/15 text-[#F4F2EF] py-3 text-[13px] md:text-[14px] outline-none placeholder:text-white/30 focus:border-[#94B6EF] transition"
                     type="text"
                     placeholder="124 Rue Mont-Royal O"
                     value={suggestAddress}
@@ -370,9 +607,9 @@ export default function Home() {
                 </div>
               </div>
               <div className="flex flex-col gap-2">
-                <label className="text-[8px] md:text-[9px] tracking-[0.2em] uppercase text-white/35">Vibe / atmosphere *</label>
+                <label className="text-[9px] tracking-[0.2em] uppercase text-white/55">Vibe / atmosphere *</label>
                 <input
-                  className="bg-transparent border-b border-white/15 text-[#F4F2EF] py-3 text-[13px] md:text-[14px] outline-none placeholder:text-white/15 focus:border-[#94B6EF] transition"
+                  className="bg-transparent border-b border-white/15 text-[#F4F2EF] py-3 text-[13px] md:text-[14px] outline-none placeholder:text-white/30 focus:border-[#94B6EF] transition"
                   type="text"
                   placeholder="Indie, cozy, exposed brick, great pour-overs..."
                   value={suggestVibe}
@@ -381,9 +618,9 @@ export default function Home() {
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <label className="text-[8px] md:text-[9px] tracking-[0.2em] uppercase text-white/35">Your name (optional)</label>
+                <label className="text-[9px] tracking-[0.2em] uppercase text-white/55">Your name (optional)</label>
                 <input
-                  className="bg-transparent border-b border-white/15 text-[#F4F2EF] py-3 text-[13px] md:text-[14px] outline-none placeholder:text-white/15 focus:border-[#94B6EF] transition"
+                  className="bg-transparent border-b border-white/15 text-[#F4F2EF] py-3 text-[13px] md:text-[14px] outline-none placeholder:text-white/30 focus:border-[#94B6EF] transition"
                   type="text"
                   placeholder="Marie"
                   value={submitterName}
@@ -408,7 +645,7 @@ export default function Home() {
             {suggestError && (
               <p className="mt-4 text-red-400 text-[11px] md:text-[12px]">{suggestError}</p>
             )}
-            <p className="mt-4 md:mt-6 text-[9px] md:text-[10px] text-white/18 tracking-[0.05em]">
+            <p className="mt-4 md:mt-6 text-[10px] text-white/40 tracking-[0.05em]">
               Verified against Google Places before saving.
             </p>
           </form>
@@ -416,149 +653,16 @@ export default function Home() {
 
       </section>
 
-      {/* ── VIBE SEARCH + MAP (side by side) ── */}
-      <section id="vibe-search" className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] border-b border-white/5">
-
-        {/* Left: search form + results */}
-        <div className="bg-[#60212E] border-b lg:border-b-0 lg:border-r border-white/5 lg:overflow-y-auto lg:max-h-[calc(100vh-60px)] lg:sticky lg:top-[60px]">
-          <div className="px-4 md:px-10 py-10 md:py-[72px]">
-            <div className="flex flex-col md:flex-row md:justify-between md:items-end mb-6 md:mb-10 gap-4 md:gap-0">
-              <div>
-                <p className="text-[8px] md:text-[10px] tracking-[0.22em] uppercase text-[#94B6EF] mb-2 md:mb-4">Search by vibe</p>
-                <h2 className="font-[family-name:var(--font-playfair)] text-[28px] md:text-[36px] font-bold leading-tight text-[#F4F2EF]">
-                  What's<br/>the <em className="text-white/30">mood?</em>
-                </h2>
-              </div>
-              <p className="text-[10px] md:text-[11px] text-white/30 max-w-[160px] leading-[1.7] md:text-right tracking-[0.04em]">
-                Describe your ideal café moment. We'll find your match.
-              </p>
-            </div>
-
-            <form onSubmit={handleSubmit}>
-              <div className="flex flex-col md:flex-row">
-                <input
-                  className="flex-1 bg-[rgba(28,12,16,0.45)] border border-white/12 md:border-r-0 text-white px-4 md:px-5 py-3 md:py-4 text-[12px] md:text-[13px] placeholder:text-white/20 outline-none focus:border-[#94B6EF] transition"
-                  placeholder="cozy, exposed brick, jazz, great oat latte..."
-                  value={vibes}
-                  onChange={(e) => setVibes(e.target.value)}
-                  autoComplete="off"
-                />
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="bg-[#F4F2EF] text-[#1c0c10] px-5 md:px-7 py-3 md:py-4 text-[9px] md:text-[10px] tracking-[0.16em] uppercase font-medium disabled:opacity-50 whitespace-nowrap mt-2 md:mt-0"
-                >
-                  {loading ? "Finding…" : "Find cafés →"}
-                </button>
-              </div>
-            </form>
-
-            <div className="flex gap-2 flex-wrap mt-3 md:mt-4">
-              {VIBE_TAGS.map((tag) => (
-                <button
-                  key={tag}
-                  type="button"
-                  onClick={() => {
-                    const v = tag.toLowerCase();
-                    setVibes(v);
-                    setError(null);
-                    setResults([]);
-                    setSelectedShopId(null);
-                    setDetectedVibes(null);
-                    setRequestedTopN(3);
-                    runSearch(3, v);
-                  }}
-                  className="px-3 md:px-4 py-[6px] md:py-[7px] border border-white/15 text-[9px] md:text-[10px] tracking-[0.1em] uppercase text-white/45 hover:border-[#94B6EF] hover:text-[#94B6EF] transition"
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
-
-            {error && <p className="mt-4 md:mt-6 text-red-400 text-[12px] md:text-[13px]">{error}</p>}
-
-            {detectedVibes && (
-              <p className="mt-3 md:mt-4 text-[#94B6EF] text-[11px] md:text-[12px]">
-                Detected vibes: <span className="italic">{detectedVibes}</span>
-              </p>
-            )}
-
-            {/* Results */}
-            {results.length > 0 && (
-              <div className="mt-8 md:mt-12">
-                <p className="text-[8px] md:text-[10px] tracking-[0.2em] uppercase text-[#94B6EF] mb-4 md:mb-6">
-                  {results.length} spot{results.length !== 1 ? "s" : ""} found
-                </p>
-                <div className="flex flex-col gap-px bg-white/5">
-                  {results.map((r, i) => (
-                    <div
-                      key={`${r.shop.id}-${i}`}
-                      data-shop-id={r.shop.id}
-                      onClick={() => handleSelectShop(r.shop.id)}
-                      className={`bg-[#60212E] p-4 md:p-6 cursor-pointer transition hover:bg-[#4a1924] ${
-                        selectedShopId === r.shop.id ? "outline outline-1 outline-[#94B6EF] bg-[#4a1924]" : ""
-                      }`}
-                    >
-                      <div className="flex justify-between items-start gap-4 mb-2">
-                        <h3 className="font-[family-name:var(--font-playfair)] text-[16px] md:text-[18px] text-[#F4F2EF] leading-tight">
-                          {i === 0 ? "🥇 " : ""}{r.shop.name}
-                        </h3>
-                        <span className="text-[10px] md:text-[11px] text-[#94B6EF] shrink-0 mt-1">{Math.round((r.score ?? 0) * 100)}%</span>
-                      </div>
-                      <p className="text-[10px] md:text-[11px] text-white/40 mb-3">{r.shop.address ?? "Montréal"}</p>
-                      {r.reason && (
-                        <p className="text-[11px] md:text-[12px] text-white/70 italic leading-relaxed mb-4">{r.reason}</p>
-                      )}
-                      <a
-                        href={mapsUrl(r.shop)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(ev) => ev.stopPropagation()}
-                        className="text-[9px] md:text-[10px] tracking-[0.1em] uppercase text-[#94B6EF] hover:text-[#F4F2EF] transition"
-                      >
-                        View on map →
-                      </a>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-5 md:mt-6 pb-10">
-                  <button
-                    type="button"
-                    disabled={loading}
-                    onClick={() => runSearch(Math.min(15, requestedTopN + 4))}
-                    className="border border-white/15 px-4 md:px-6 py-2 text-[10px] md:text-[11px] tracking-[0.1em] uppercase text-white/50 hover:border-white/30 hover:text-white/70 transition disabled:opacity-50"
-                  >
-                    {loading ? "Loading…" : "Show more"}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {results.length === 0 && !loading && (
-              <p className="mt-8 md:mt-10 text-[11px] md:text-[12px] text-white/25 tracking-wide">
-                Search your vibe to see café suggestions and map pins.
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Right: sticky map */}
-        <div className="bg-[#1c0c10] h-[280px] md:h-[350px] lg:h-[calc(100vh-60px)] lg:sticky lg:top-[60px] overflow-hidden">
-          <MontrealMap results={results} selectedShopId={selectedShopId} onSelectShop={handleSelectShop} />
-        </div>
-
-      </section>
-
       {/* ── FEEDBACK SECTION ── */}
-      <section id="feedback-section" className="bg-[#1c0c10] border-b border-white/5 py-12 md:py-24 px-4 md:px-10 flex flex-col items-center">
+      <section id="feedback-section" className="scroll-section md:snap-start surface-dark border-b border-white/10 py-10 md:py-24 px-4 md:px-10 flex flex-col items-center min-h-0 md:min-h-[calc(100dvh-60px)]">
 
-        <p className="text-[8px] md:text-[10px] tracking-[0.3em] uppercase text-[#94B6EF]/70 mb-4 md:mb-6">We&apos;re listening</p>
+        <p className="text-[10px] tracking-[0.3em] uppercase text-[#9ec0ff] md:text-[#94B6EF] font-medium mb-3 md:mb-6">We&apos;re listening</p>
 
-        <h2 className="font-[family-name:var(--font-playfair)] text-[32px] md:text-[48px] lg:text-[56px] font-bold leading-[1] text-center text-[#F4F2EF] mb-6 md:mb-8 mt-8 md:mt-12">
-          Tell us what<br/>you <em className="text-white/25">actually</em> think
+        <h2 className="font-[family-name:var(--font-playfair)] text-[32px] md:text-[48px] lg:text-[56px] font-bold leading-[1] text-center text-[#F4F2EF] mb-4 md:mb-8">
+          Tell us what<br/>you <em className="text-white/40 md:text-white/25">actually</em> think
         </h2>
 
-        <p className="text-[11px] md:text-[12px] text-white/40 text-center max-w-[380px] leading-[1.9] tracking-[0.03em] mb-10 md:mb-14">
+        <p className="text-[12px] md:text-[12px] text-white/65 md:text-white/40 text-center max-w-[380px] leading-[1.9] tracking-[0.03em] mb-8 md:mb-14">
           CafeCrawl is a work in progress. Every message gets read — whether it&apos;s a missing neighbourhood, a broken feature, or an idea we haven&apos;t thought of yet.
         </p>
 
@@ -575,7 +679,7 @@ export default function Home() {
                 onMouseLeave={() => setFeedbackHover(0)}
                 className="text-[24px] md:text-[32px] transition-transform hover:scale-110 leading-none"
               >
-                <span className={(feedbackHover || feedbackRating) >= star ? "text-[#94B6EF]" : "text-white/12"}>
+                <span className={(feedbackHover || feedbackRating) >= star ? "text-[#94B6EF]" : "text-white/25"}>
                   ★
                 </span>
               </button>
@@ -584,14 +688,14 @@ export default function Home() {
 
           <div className="flex flex-col gap-6">
             <textarea
-              className="w-full bg-[rgba(28,12,16,0.4)] border border-white/10 text-[#F4F2EF] px-4 md:px-6 py-4 md:py-5 text-[13px] md:text-[14px] outline-none placeholder:text-white/18 focus:border-[#94B6EF] transition resize-none leading-relaxed"
+              className="w-full bg-[rgba(28,12,16,0.55)] border border-white/20 text-[#F4F2EF] px-4 md:px-6 py-4 md:py-5 text-[13px] md:text-[14px] outline-none placeholder:text-white/50 focus:border-[#9ec0ff] md:focus:border-[#94B6EF] transition resize-none leading-relaxed rounded-lg"
               rows={4}
               placeholder="What's working, what's missing, what you'd love to see..."
               value={feedbackMessage}
               onChange={(e) => setFeedbackMessage(e.target.value)}
             />
             <input
-              className="w-full bg-transparent border-b border-white/12 text-[#F4F2EF] py-3 text-[12px] md:text-[13px] outline-none placeholder:text-white/18 focus:border-[#94B6EF] transition"
+              className="w-full bg-transparent border-b border-white/12 text-[#F4F2EF] py-3 text-[12px] md:text-[13px] outline-none placeholder:text-white/35 focus:border-[#94B6EF] transition"
               type="text"
               placeholder="Your name (optional)"
               value={feedbackName}
@@ -620,55 +724,26 @@ export default function Home() {
 
       </section>
 
-      {/* ── IMAGE SECTION — coming soon ── */}
-      <section id="image-section" className="relative grid grid-cols-1 md:grid-cols-[1.4fr_1fr] border-b border-white/5 select-none">
-        <div className="bg-[#1c0c10] flex flex-col items-center justify-center min-h-[250px] md:min-h-[280px] p-6 md:p-12 md:border-r border-white/5">
-          <div className="opacity-25 pointer-events-none grayscale">
-            <ImageUpload
-              onDetectedVibes={handleDetectedVibes}
-              onLoading={setLoading}
-              onError={setError}
-              isLoading={loading}
-            />
-          </div>
-        </div>
-        <div className="px-4 md:px-10 py-8 md:py-16 bg-[#4a1924] flex flex-col justify-center">
-          <p className="text-[8px] md:text-[10px] tracking-[0.22em] uppercase text-[#94B6EF] mb-2 md:mb-4">Search by image</p>
-          <h2 className="font-[family-name:var(--font-playfair)] text-[24px] md:text-[32px] font-bold leading-tight text-[#F4F2EF] mb-3 md:mb-4">
-            Show us<br/>the <em className="text-white/30">aesthetic</em>
-          </h2>
-          <p className="text-[11px] md:text-[12px] leading-[1.8] text-white/45 max-w-[260px]">
-            Upload a photo that captures the vibe you're after. A Pinterest save, a screenshot, a mood board. We'll find cafés that match.
-          </p>
-        </div>
-        <div className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none">
-          <p className="text-[8px] md:text-[9px] tracking-[0.35em] uppercase text-white/35 mb-2 md:mb-3">Coming soon</p>
-          <p className="font-[family-name:var(--font-playfair)] text-[20px] md:text-[28px] italic text-white/20">Search by image</p>
-        </div>
-      </section>
 
-      {/* ── FOOTER ── */}
-      <footer className="grid grid-cols-1 md:grid-cols-3 bg-[#1c0c10] border-t border-white/5">
-        <div className="p-6 md:p-10 md:border-r border-b md:border-b-0 border-white/5">
-          <p className="text-[8px] md:text-[9px] tracking-[0.2em] uppercase text-white/22 mb-3 md:mb-4">Brand</p>
-          <p className="font-[family-name:var(--font-playfair)] text-[18px] md:text-[22px] font-bold text-[#F4F2EF]">CafeCrawl Montreal</p>
-          <p className="text-[10px] md:text-[11px] text-white/22 tracking-[0.05em] mt-1">Montréal · Est. 2026</p>
-        </div>
-        <div className="p-6 md:p-10 md:border-r border-b md:border-b-0 border-white/5">
-          <p className="text-[8px] md:text-[9px] tracking-[0.2em] uppercase text-white/22 mb-3 md:mb-4">Navigate</p>
-          <div className="flex flex-col gap-2 md:gap-3">
-            {[["vibe-search", "Search by vibe"], ["image-section", "Search by image"], ["suggest-section", "Submit a café"], ["feedback-section", "Feedback"]].map(([id, label]) => (
-              <button key={id} onClick={() => scrollTo(id)} className="text-[10px] md:text-[11px] tracking-[0.1em] uppercase text-white/35 hover:text-white/60 transition text-left">
+      </main>
+
+      <footer className="surface-dark border-t border-white/10 safe-bottom">
+        <div className="max-w-4xl mx-auto px-4 py-5 md:py-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <button type="button" onClick={scrollToTop} className="flex items-center gap-2 text-left">
+            <CafeLogo size={20} />
+            <div>
+              <p className="font-[family-name:var(--font-playfair)] text-[14px] font-bold text-[#F4F2EF]">CafeCrawl Montreal</p>
+              <p className="text-[9px] text-white/50 tracking-wide">Montréal · Est. 2026</p>
+            </div>
+          </button>
+          <nav className="flex flex-wrap gap-x-5 gap-y-2">
+            {quickNavLinks.map(([id, label]) => (
+              <button key={id} type="button" onClick={() => scrollTo(id)} className="text-[9px] tracking-[0.12em] uppercase text-white/55 hover:text-white/85 transition">
                 {label}
               </button>
             ))}
-          </div>
-        </div>
-        <div className="p-6 md:p-10">
-          <p className="text-[8px] md:text-[9px] tracking-[0.2em] uppercase text-white/22 mb-3 md:mb-4">About</p>
-          <p className="text-[9px] md:text-[10px] text-white/15 tracking-[0.06em] leading-[1.7]">
-            © 2026 CafeCrawl Montreal.<br/>Curated Montréal café discovery<br/>powered by AI + community picks.
-          </p>
+          </nav>
+          <p className="text-[9px] text-white/40 tracking-wide sm:text-right">© 2026 · AI + community picks</p>
         </div>
       </footer>
 

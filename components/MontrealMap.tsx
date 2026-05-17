@@ -198,7 +198,7 @@ function buildStationsGeoJson() {
 }
 
 const BTN =
-  "w-8 h-8 flex items-center justify-center bg-[#1c0c10]/90 border border-white/10 text-[#F4F2EF]/70 text-[13px] leading-none hover:bg-[#60212E] hover:border-[#94B6EF]/50 hover:text-[#F4F2EF] transition-colors select-none cursor-pointer";
+  "w-11 h-11 md:w-8 md:h-8 flex items-center justify-center bg-[#1c0c10]/90 border border-white/10 text-[#F4F2EF]/70 text-[13px] leading-none hover:bg-[#60212E] hover:border-[#94B6EF]/50 hover:text-[#F4F2EF] transition-colors select-none cursor-pointer touch-manipulation";
 
 function NavControls({ mapRef }: { mapRef: React.RefObject<maplibregl.Map | null> }) {
   const pan = (x: number, y: number) =>
@@ -213,7 +213,7 @@ function NavControls({ mapRef }: { mapRef: React.RefObject<maplibregl.Map | null
     });
 
   return (
-    <div className="absolute bottom-6 right-4 z-10 flex flex-col gap-px">
+    <div className="absolute bottom-4 right-3 md:bottom-6 md:right-4 z-10 flex flex-col gap-px safe-bottom">
       {/* zoom */}
       <button className={BTN} onClick={() => mapRef.current?.zoomIn({ duration: 250 })} title="Zoom in">
         <svg width="11" height="11" viewBox="0 0 11 11" fill="currentColor"><path d="M5 0h1v5h5v1H6v5H5V6H0V5h5z"/></svg>
@@ -222,11 +222,15 @@ function NavControls({ mapRef }: { mapRef: React.RefObject<maplibregl.Map | null
         <svg width="11" height="3" viewBox="0 0 11 3" fill="currentColor"><path d="M0 0h11v3H0z"/></svg>
       </button>
 
-      {/* divider */}
-      <div className="h-px bg-white/8 my-[2px]" />
+      <button className={`${BTN} md:hidden`} onClick={reset} title="Reset view" aria-label="Reset map view" style={{ fontSize: 10 }}>
+        ⌂
+      </button>
 
-      {/* directional pad */}
-      <div className="grid grid-cols-3 gap-px">
+      {/* divider — desktop extras */}
+      <div className="hidden md:block h-px bg-white/8 my-[2px]" />
+
+      {/* directional pad — desktop only; mobile uses pinch/drag */}
+      <div className="hidden md:grid grid-cols-3 gap-px">
         <div />
         <button className={BTN} onClick={() => pan(0, -80)} title="Pan up">
           <svg width="9" height="9" viewBox="0 0 9 9" fill="currentColor"><path d="M4.5 0 9 9H0z"/></svg>
@@ -246,16 +250,16 @@ function NavControls({ mapRef }: { mapRef: React.RefObject<maplibregl.Map | null
         <div />
       </div>
 
-      {/* tilt */}
-      <div className="h-px bg-white/8 my-[2px]" />
+      {/* tilt — desktop only */}
+      <div className="hidden md:block h-px bg-white/8 my-[2px]" />
       <button
-        className={BTN}
+        className={`${BTN} hidden md:flex`}
         onClick={() => mapRef.current?.easeTo({ pitch: Math.min((mapRef.current?.getPitch() ?? 0) + 10, 85), duration: 250 })}
         title="Tilt up"
         style={{ fontSize: 10 }}
       >3D↑</button>
       <button
-        className={BTN}
+        className={`${BTN} hidden md:flex`}
         onClick={() => mapRef.current?.easeTo({ pitch: Math.max((mapRef.current?.getPitch() ?? 0) - 10, 0), duration: 250 })}
         title="Tilt down"
         style={{ fontSize: 10 }}
@@ -590,8 +594,8 @@ export default function MontrealMap({ results, selectedShopId, onSelectShop }: P
   }, [selectedShopId, results]);
 
   return (
-    <div className="relative h-full w-full" style={{ minHeight: 480 }}>
-      <div ref={containerRef} className="h-full w-full" />
+    <div className="relative h-full w-full min-h-0 lg:min-h-[480px]">
+      <div ref={containerRef} className="h-full w-full touch-pan-x touch-pan-y" />
       <NavControls mapRef={mapRef} />
     </div>
   );

@@ -1,7 +1,169 @@
 @import "tailwindcss";
 
+:root {
+  --cc-bg: #2c1419;
+  --cc-surface: #4a2430;
+  --cc-surface-deep: #1a0a0e;
+  --cc-hero: #5c2a38;
+  --cc-ink: #faf8f5;
+  --cc-ink-muted: rgba(250, 248, 245, 0.82);
+  --cc-ink-subtle: rgba(250, 248, 245, 0.62);
+  --cc-accent: #9ec0ff;
+  --cc-accent-strong: #6fa3f5;
+  --cc-cream: #f4f2ef;
+  --cc-cream-panel: #f8f6f2;
+  --cc-ink-dark: #120608;
+  --cc-ink-muted-dark: #2a1218;
+  --cc-border: rgba(255, 255, 255, 0.18);
+  --cc-border-strong: rgba(255, 255, 255, 0.28);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   font-family: var(--font-inter, Inter, sans-serif);
+  overscroll-behavior-y: none;
+  background-color: var(--cc-bg);
+  color: var(--cc-ink);
+}
+
+.surface-dark {
+  background-color: var(--cc-surface-deep);
+}
+
+.surface-mid {
+  background-color: var(--cc-surface);
+}
+
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Offset scroll targets so section titles sit below sticky nav */
+.scroll-pt-nav {
+  scroll-padding-top: calc(3.5rem + env(safe-area-inset-top, 0px) + 6px);
+}
+
+.scroll-section {
+  scroll-margin-top: calc(3.5rem + env(safe-area-inset-top, 0px) + 6px);
+}
+
+@media (min-width: 768px) {
+  .scroll-section {
+    scroll-margin-top: 68px;
+  }
+}
+
+/* Mobile search panel: light background for readability */
+@media (max-width: 1023px) {
+  .search-panel-mobile {
+    background-color: var(--cc-cream-panel);
+    color: var(--cc-ink-dark);
+  }
+
+  .search-panel-mobile .text-muted {
+    color: var(--cc-ink-muted-dark);
+  }
+
+  .search-panel-mobile .text-subtle {
+    color: rgba(18, 6, 8, 0.72);
+  }
+
+  .search-panel-mobile .text-accent {
+    color: #2d4a7a;
+  }
+
+  .search-panel-mobile .text-heading {
+    color: var(--cc-ink-dark);
+  }
+
+  .search-panel-mobile .text-heading em {
+    color: rgba(18, 6, 8, 0.42);
+  }
+
+  .search-panel-mobile h3 {
+    color: var(--cc-ink-dark);
+  }
+
+  .search-panel-mobile .vibe-input {
+    background-color: #fff;
+    border-color: rgba(26, 10, 14, 0.2);
+    color: var(--cc-ink-dark);
+  }
+
+  .search-panel-mobile .vibe-input::placeholder {
+    color: rgba(26, 10, 14, 0.4);
+  }
+
+  .search-panel-mobile .vibe-tag {
+    background-color: rgba(18, 6, 8, 0.06);
+    border-color: rgba(18, 6, 8, 0.28);
+    color: var(--cc-ink-dark);
+  }
+
+  .search-panel-mobile .result-card {
+    background-color: #fff;
+    border: 1px solid rgba(26, 10, 14, 0.1);
+  }
+
+  .search-panel-mobile .result-card.selected {
+    border-color: #3d5f9e;
+    background-color: #eef3fc;
+  }
+
+  .search-panel-mobile .result-card .result-address {
+    color: rgba(18, 6, 8, 0.68);
+  }
+
+  .search-panel-mobile .result-card .result-reason {
+    color: var(--cc-ink-dark);
+  }
+
+  .search-panel-mobile .result-card .result-link {
+    color: #2d4a7a;
+  }
+
+  .search-panel-mobile .show-more-btn {
+    border-color: rgba(18, 6, 8, 0.3);
+    color: var(--cc-ink-muted-dark);
+  }
+
+  .search-panel-mobile .detected-vibes {
+    color: #2d4a7a;
+  }
+}
+
+/* Light panels (suggest form intro) — darker body copy */
+.panel-light {
+  color: var(--cc-ink-dark);
+}
+
+.panel-light .text-muted {
+  color: var(--cc-ink-muted-dark);
+}
+
+.panel-light .text-label {
+  color: rgba(18, 6, 8, 0.55);
+}
+
+/* 16px inputs prevent iOS zoom-on-focus */
+@media (max-width: 767px) {
+  input[type="text"],
+  input[type="search"],
+  textarea {
+    font-size: 16px !important;
+  }
 }
 
 @keyframes ticker {

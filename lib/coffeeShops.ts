@@ -1,7 +1,7 @@
 /** Montreal drink spots from Google Places. Server-only. */
 import { supabase } from "./supabase";
 
-const SHOP_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const SHOP_TTL_MS = 60 * 60 * 1000; // 1 hour (shops don't change often)
 
 export type MontrealCoffeeShop = {
   /** Google Places placeId */
@@ -27,6 +27,29 @@ const CHAIN_BLACKLIST = new Set([
   "timothy's",
 ]);
 
+const PRICE_LABELS: Record<string, string> = {
+  PRICE_LEVEL_FREE: "free",
+  PRICE_LEVEL_INEXPENSIVE: "$",
+  PRICE_LEVEL_MODERATE: "$$",
+  PRICE_LEVEL_EXPENSIVE: "$$$",
+  PRICE_LEVEL_VERY_EXPENSIVE: "$$$$",
+};
+
+// Maps Google Places types to readable descriptors useful for vibe matching
+const TYPE_LABELS: Record<string, string> = {
+  cafe: "café",
+  bar: "bar",
+  bakery: "bakery",
+  restaurant: "restaurant",
+  book_store: "bookstore",
+  art_gallery: "gallery",
+  juice_bar: "juice bar",
+  coffee_shop: "coffee shop",
+  tea_house: "tea house",
+  meal_takeaway: "takeaway",
+  dessert_shop: "dessert",
+};
+
 function buildSummary(p: {
   types?: string[];
   rating?: number;
@@ -38,18 +61,36 @@ function buildSummary(p: {
   dineIn?: boolean;
 }): string {
   const bits: string[] = [];
+
+  // Quality signal — describe rating in words rather than bare numbers
   if (p.rating != null) {
-    const n = p.userRatingCount != null ? ` (${p.userRatingCount})` : "";
-    bits.push(`rating ${p.rating}${n}`);
+    const label = p.rating >= 4.5 ? "top-rated" : p.rating >= 4.0 ? "well-rated" : null;
+    const count = p.userRatingCount != null ? `${p.userRatingCount} reviews` : "";
+    if (label && count) bits.push(`${label} (${count})`);
+    else if (label) bits.push(label);
+    else if (count) bits.push(count);
   }
-  if (p.priceLevel) bits.push(`price ${p.priceLevel}`);
-  if (p.servesCoffee) bits.push("coffee");
-  if (p.takeout) bits.push("takeout");
-  if (p.dineIn) bits.push("dine-in");
+
+  // Price
+  if (p.priceLevel) {
+    const label = PRICE_LABELS[p.priceLevel];
+    if (label) bits.push(label);
+  }
+
+  // Venue type — most descriptive signal after the name
+  const typeLabels = (p.types ?? []).map((t) => TYPE_LABELS[t]).filter(Boolean).slice(0, 2);
+  if (typeLabels.length) bits.push(...typeLabels);
+  else if (p.servesCoffee) bits.push("coffee");
+
+  // Format
+  if (p.dineIn && p.takeout) bits.push("dine-in + takeout");
+  else if (p.dineIn) bits.push("dine-in");
+  else if (p.takeout) bits.push("takeout");
+
   if (p.businessStatus && p.businessStatus !== "OPERATIONAL") {
-    bits.push(p.businessStatus.toLowerCase());
+    bits.push(p.businessStatus.toLowerCase().replace(/_/g, " "));
   }
-  if (p.types?.length) bits.push(p.types.slice(0, 3).join(", "));
+
   return bits.join(" · ") || "café";
 }
 
